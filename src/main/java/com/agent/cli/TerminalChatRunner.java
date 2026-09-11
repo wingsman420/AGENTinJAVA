@@ -19,6 +19,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
 
@@ -42,10 +43,10 @@ import java.util.Set;
  * 所以这里改用配置项 {@code agent.cli.enabled} 控制（默认开）。
  *
  * <h2>编码</h2>
- * {@code logging.charset.console} 只管日志框架，管不到 {@code System.in/out}。
- * {@code System.out} 默认跟随系统控制台编码（Windows 中文环境是 GBK），
- * 在 IDEA / Git Bash 这类 UTF-8 终端里会乱码。所以下面显式构造 UTF-8 的
- * 输入输出流。原生 Windows cmd 需要先 {@code chcp 65001} 才能配套。
+ * {@code logging.charset.console} 只管日志框架，管不到 {@code System.in/out}，
+ * 所以本类自己构造输入输出流。**关键是编码不能在代码里写死** ——
+ * 原生 Windows 控制台用系统代码页（中文下是 GBK），而 IDEA 控制台和 Git Bash 用 UTF-8，
+ * 写死任何一种都会在另一种终端里乱码。这里改为运行时探测，详见 {@link #consoleCharset()}。
  */
 @Component
 @ConditionalOnProperty(name = "agent.cli.enabled", havingValue = "true", matchIfMissing = true)
@@ -64,9 +65,9 @@ public class TerminalChatRunner implements ApplicationRunner {
     private final AgentProperties props;
     private final int serverPort;
 
-    // 显式 UTF-8，理由见类注释的"编码"一节
-    private final PrintStream out =
-            new PrintStream(new FileOutputStream(FileDescriptor.out), true, StandardCharsets.UTF_8);
+    /** 探测出来的终端编码，输入输出都用它，详见 {@link ConsoleEncoding}。 */
+    private final Charset charset = ConsoleEncoding.detect();
+    private final PrintStream out = createOut(charset);
 
     public TerminalChatRunner(Agent agent, SessionStore sessions, AgentProperties props,
                               @Value("${server.port:8080}") int serverPort) {
@@ -76,13 +77,17 @@ public class TerminalChatRunner implements ApplicationRunner {
         this.serverPort = serverPort;
     }
 
+    private static PrintStream createOut(Charset charset) {
+        return new PrintStream(new FileOutputStream(FileDescriptor.out), true, charset);
+    }
+
     @Override
     public void run(ApplicationArguments args) {
         ChatSession session = sessions.getOrCreate(LOCAL_SESSION_ID);
         printBanner();
 
-        BufferedReader reader = new BufferedReader(
-                new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        // 输入也用同一个探测出来的编码，否则中文提问会乱码
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, charset));
 
         try {
             String line;
@@ -131,6 +136,9 @@ public class TerminalChatRunner implements ApplicationRunner {
         out.println("  模型      : " + props.model());
         out.println("  工作目录  : " + props.workspace());
         out.println("  可用工具  : " + String.join(", ", agent.activeToolNames()));
+        // 把探测到的编码显示出来：中文一旦乱码，第一眼就能看出是不是编码没对上
+        out.println("  终端编码  : " + charset.name()
+                + (ConsoleEncoding.hasRealConsole() ? "（系统控制台）" : "（无控制台，按 UTF-8）"));
         out.println("  Web API   : http://localhost:" + serverPort + "/api/chat");
         out.println("------------------------------------------------------------");
         out.println("  直接输入问题开始对话；输入 /help 看帮助，输入 exit 退出");

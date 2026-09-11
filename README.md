@@ -408,7 +408,14 @@ java -jar target/agent-cli-0.1.0.jar --logging.level.com.agent=debug
 
 # 九、常见问题
 
-**中文乱码？** IDEA、Git Bash、Linux 服务器上都正常。**原生 Windows cmd / PowerShell** 需要先 `chcp 65001`。
+**中文乱码？** 正常情况**不需要做任何设置** —— 程序启动时会自动探测终端编码（启动横幅里的"终端编码"一行会显示探测结果），所以 IDEA、Git Bash、PowerShell、cmd 里中文都应该正常。
+
+如果仍然乱码，先看那一行显示的是什么：
+
+- 显示 `UTF-8（无控制台，按 UTF-8）` 但你其实在 cmd / PowerShell 里跑 → 说明程序没拿到真正的控制台（比如输出被重定向了）
+- 显示 `GBK（系统控制台）` 但输出还是花的 → 可能是终端字体不支持中文，换 Consolas 或等宽字体试试
+
+探测逻辑在 `cli/ConsoleEncoding.java`。
 
 **回答是空的？** 多半是 `max-tokens` 太小。推理模型回答前会先输出思维链，同样消耗 token 预算；预算耗尽时 `content` 会是空字符串。调大 `agent.max-tokens` 即可。
 

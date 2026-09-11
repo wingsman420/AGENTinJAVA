@@ -1,5 +1,6 @@
 package com.agent;
 
+import com.agent.cli.ConsoleEncoding;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -26,6 +27,15 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class AgentApplication {
 
     public static void main(String[] args) {
+        // 必须在 Spring 启动之前设置：日志框架的编码只在初始化时读一次，之后再改就来不及了。
+        //
+        // 为什么需要这一步：application.yml 里把 logging.charset.console 配成了 UTF-8，
+        // 这在 IDEA 和 Git Bash 里是对的，但在原生 Windows 控制台（cmd / PowerShell，
+        // 中文下用 GBK 代码页）里会让日志中文乱码。这里改成按实际终端探测 ——
+        // 挂在真正的系统控制台上就用它的代码页，否则保持 UTF-8。
+        if (ConsoleEncoding.hasRealConsole()) {
+            System.setProperty("logging.charset.console", ConsoleEncoding.detect().name());
+        }
         SpringApplication.run(AgentApplication.class, args);
     }
 }
