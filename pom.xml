@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- 继承 Spring Boot 父 POM：统一管理依赖版本，子依赖不用写 <version> -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.1</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.agent</groupId>
+    <artifactId>agent-cli</artifactId>
+    <version>0.1.0</version>
+    <name>agent-cli</name>
+    <description>本地 LLM Agent：终端对话 + Web API + 本地文件理解</description>
+
+    <properties>
+        <!-- Spring Boot 4 的 JDK 基线就是 17，这里显式声明便于对齐课程任务书要求 -->
+        <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- Web 能力：Spring MVC + 内嵌 Tomcat + RestClient + Jackson -->
+        <!-- 注意：Spring Boot 4 起 spring-boot-starter-web 已废弃，改用 -webmvc -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+
+        <!-- 测试：JUnit 6 + AssertJ + Mockito + MockMvc，只参与 test 阶段 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 把依赖打进 jar 并生成可执行 jar（BOOT-INF 结构 + JarLauncher） -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

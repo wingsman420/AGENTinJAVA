@@ -1,0 +1,26 @@
+# 统一换行符处理，避免跨平台协作时出现"整个文件都改了"的假 diff。
+#
+# 背景：Windows 上 Git 默认会把 LF 转成 CRLF（autocrlf），
+# 于是同一份文件在不同机器上换行符不同，diff 会显示成整个文件都被修改。
+# 更严重的是 mvnw 这类 shell 脚本，被转成 CRLF 后在 Linux 上会报
+# "bad interpreter: /bin/sh^M" 直接无法执行。
+
+# 默认：仓库内一律存 LF
+* text=auto eol=lf
+
+# Windows 批处理脚本必须保持 CRLF，否则 cmd.exe 解析会出问题
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# 二进制文件不做任何换行符转换
+*.jar   binary
+*.war   binary
+*.zip   binary
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+
+# 这些文件按二进制处理，避免 Git 尝试做文本 diff
+*.class binary

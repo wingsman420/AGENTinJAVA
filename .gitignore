@@ -1,0 +1,48 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+.kotlin
+
+### 密钥与本地配置（务必不要提交）###
+# 本地覆盖配置：把 API Key 写在这里，配合 --spring.profiles.active=local 使用
+src/main/resources/application-local.yml
+application-local.yml
+# 环境变量文件
+.env
+.env.local
+*.key
+
+### IntelliJ IDEA ###
+# 整个 .idea/ 都不提交：misc.xml 里记录的是本机 JDK 名称（如 openjdk-26），
+# workspace.xml 是个人界面状态，这些换台机器就不对了。
+# IDEA 打开项目时会自己重新生成。
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store

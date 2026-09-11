@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: agent-cli
+  config:
+    # 自动加载本地覆盖配置（此文件在 .gitignore 中，不会提交）。
+    # optional: 前缀表示文件不存在也不报错 —— 换回环境变量时直接删掉那个文件即可，
+    # 下面 agent.api-key 的 ${DEEPSEEK_API_KEY:} 会自动接手。
+    import: optional:classpath:application-local.yml
+
+server:
+  port: 8080
+
+agent:
+  # DeepSeek 用的是 OpenAI 兼容协议，换供应商只要改下面三行
+  #   通义千问: https://dashscope.aliyuncs.com/compatible-mode
+  #   智谱:     https://open.bigmodel.cn/api/paas/v4
+  #   本地 Ollama: http://localhost:11434
+  base-url: https://api.deepseek.com
+  model: deepseek-flash
+
+  # API Key 只从环境变量读，绝不写进这个文件（它会被提交到 git）
+  # 配置方式见 README：环境变量 / 启动参数 / application-local.yml
+  api-key: ${DEEPSEEK_API_KEY:}
+
+  # deepseek-v4-pro 是推理模型，回答前会先输出思维链，同样消耗 token 预算。
+  # 给小了会导致 content 返回空字符串（思维链把预算吃光，答案还没开始写就被截断）。
+  max-tokens: 2048
+
+  # 单次请求超时。推理模型的长回答可能比较慢，给足余量。
+  timeout: 120s
+
+  # ReAct 循环最多调用几轮工具，防止模型陷入"反复调工具"的死循环
+  max-tool-iterations: 8
+
+  # 文件工具只能访问这个目录以内的文件（路径沙箱）。
+  # ${user.dir} 是启动命令时的当前目录；也可以写死成绝对路径。
+  workspace: ${user.dir}
+
+  cli:
+    # 终端对话入口开关。本地开发保持 true；
+    # 部署到服务器时用 --agent.cli.enabled=false 关掉（stdin 关闭时它本来也会自动失效）
+    enabled: true
+
+logging:
+  charset:
+    # 强制日志用 UTF-8。不配则跟随系统区域设置（Windows 中文是 GBK），
+    # 在 IDEA / Git Bash 这类 UTF-8 终端里中文会乱码。
+    # 注意：这只管日志框架，System.out 需要另行处理（见 TerminalChatRunner）。
+    console: UTF-8
+  level:
+    root: info
+    # 默认 info：终端对话时日志和回答交替输出，debug 级别会把完整的请求体
+    # （含读进来的全部文件内容）都打出来，刷屏到没法看。
+    # 想看模型到底收发了什么、排查工具调用问题时，临时加：
+    #   java -jar target/agent-cli-0.1.0.jar --logging.level.com.agent=debug
+    com.agent: info
