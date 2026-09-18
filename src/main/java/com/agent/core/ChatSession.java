@@ -24,13 +24,31 @@ public class ChatSession {
 
     private final String id;
     private final Instant createdAt;
+    private final String systemPrompt;
     private final List<ChatMessage> messages = new ArrayList<>();
 
     public ChatSession(String id, String systemPrompt) {
         this.id = id;
         this.createdAt = Instant.now();
+        this.systemPrompt = systemPrompt;
+        resetToSystemPrompt();
+    }
+
+    /**
+     * 清空对话历史，只保留 system 提示。
+     *
+     * <p>清空后**必须重新放入 system 消息**，不能把历史清成空列表 ——
+     * system 消息承载的是 agent 的身份和行为边界，丢了它模型就不知道
+     * 该扮演什么角色、该不该用工具，"清空历史"会退化成"清空人格"。
+     */
+    public synchronized void clear() {
+        resetToSystemPrompt();
+    }
+
+    private void resetToSystemPrompt() {
+        messages.clear();
         if (systemPrompt != null && !systemPrompt.isBlank()) {
-            this.messages.add(ChatMessage.system(systemPrompt));
+            messages.add(ChatMessage.system(systemPrompt));
         }
     }
 

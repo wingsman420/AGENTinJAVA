@@ -55,6 +55,7 @@ public class TerminalChatRunner implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(TerminalChatRunner.class);
 
     private static final Set<String> EXIT_COMMANDS = Set.of("exit", "quit", ":q", ":quit");
+    private static final Set<String> CLEAR_COMMANDS = Set.of("clear", "/clear", ":clear");
     private static final String HELP_COMMAND = "/help";
 
     /** 终端会话固定用这个 id，于是整个进程生命周期内上下文是连续的。 */
@@ -98,6 +99,11 @@ public class TerminalChatRunner implements ApplicationRunner {
                 }
                 if (EXIT_COMMANDS.contains(input.toLowerCase())) {
                     break;
+                }
+                if (CLEAR_COMMANDS.contains(input.toLowerCase())) {
+                    session.clear();
+                    out.println("历史已清空，当前只保留 system 提示（会话 id 不变：" + session.id() + "）。");
+                    continue;
                 }
                 if (HELP_COMMAND.equals(input)) {
                     printHelp();
@@ -151,6 +157,7 @@ public class TerminalChatRunner implements ApplicationRunner {
         out.println();
         out.println("可用命令：");
         out.println("  /help    显示这段帮助");
+        out.println("  clear    清空对话历史（只保留 system 提示，会话 id 不变）");
         out.println("  exit     退出终端对话（Web API 不受影响）");
         out.println();
         out.println("可以这样问：");

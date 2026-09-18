@@ -226,6 +226,30 @@ class AgentTest {
     }
 
     @Test
+    void 清空历史后下一轮不再携带之前的对话() {
+        Agent agent = buildAgent(8);
+        ChatSession session = newSession(agent);
+
+        llmClient.thenAnswer("第一轮回答");
+        agent.chat(session, "第一个问题");
+        assertThat(session.messages()).hasSize(3);   // system + user + assistant
+
+        session.clear();
+
+        llmClient.thenAnswer("清空后的回答");
+        agent.chat(session, "清空后的问题");
+
+        // 清空后发出的请求里，历史不该再有之前的内容
+        ChatRequest afterClear = llmClient.receivedRequests().get(1);
+        assertThat(afterClear.messages()).extracting(ChatMessage::content)
+                .doesNotContain("第一个问题", "第一轮回答")
+                .contains("清空后的问题");
+        // system + user
+        assertThat(afterClear.messages()).hasSize(2);
+        assertThat(afterClear.messages().get(0).role()).isEqualTo("system");
+    }
+
+    @Test
     void 系统提示里包含工作目录和可用工具() {
         Agent agent = buildAgent(8);
 

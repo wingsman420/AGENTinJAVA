@@ -7,6 +7,7 @@ import com.agent.llm.model.ToolDefinition;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -20,6 +21,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /**
@@ -224,12 +226,64 @@ class DeepSeekClientTest {
     // ---------- 错误处理 ----------
 
     @Test
-    void 服务端返回500时抛出LlmException() {
+    void 服务端返回500时抛出LlmException并提示可重试() {
         server.expect(requestTo(ENDPOINT)).andRespond(withServerError());
 
         assertThatThrownBy(() -> client.chat(simpleRequest()))
                 .isInstanceOf(LlmException.class)
-                .hasMessageContaining("调用模型接口失败");
+                .hasMessageContaining("HTTP 500")
+                .hasMessageContaining("可以重试");
+    }
+
+    // ---------- HTTP 状态码的可诊断性 ----------
+    // 这些用例的价值：如果客户端不检查状态码就直接解析响应体，
+    // 所有错误都会变成一句含糊的"响应里缺少 choices"，
+    // 401 和 429 的区别就丢失了，调用方也无从判断"能不能重试"。
+
+    @Test
+    void 鉴权失败时明确指出401和Key的问题() {
+        server.expect(requestTo(ENDPOINT))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
+
+        assertThatThrownBy(() -> client.chat(simpleRequest()))
+                .isInstanceOf(LlmException.class)
+                .hasMessageContaining("HTTP 401")
+                .hasMessageContaining("API Key");
+    }
+
+    @Test
+    void 限流时明确指出429和重试建议() {
+        server.expect(requestTo(ENDPOINT))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+
+        assertThatThrownBy(() -> client.chat(simpleRequest()))
+                .isInstanceOf(LlmException.class)
+                .hasMessageContaining("HTTP 429")
+                .hasMessageContaining("限流");
+    }
+
+    @Test
+    void 接口路径错误时指出404并提示检查baseUrl() {
+        server.expect(requestTo(ENDPOINT))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> client.chat(simpleRequest()))
+                .isInstanceOf(LlmException.class)
+                .hasMessageContaining("HTTP 404")
+                .hasMessageContaining("base-url");
+    }
+
+    @Test
+    void 错误信息里带上响应体便于排查() {
+        server.expect(requestTo(ENDPOINT))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                        .body("{\"error\":\"invalid model\"}")
+                        .contentType(MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.chat(simpleRequest()))
+                .isInstanceOf(LlmException.class)
+                .hasMessageContaining("HTTP 400")
+                .hasMessageContaining("invalid model");
     }
 
     @Test
@@ -254,12 +308,14 @@ class DeepSeekClientTest {
     }
 
     @Test
-    void 鉴权失败时抛出LlmException() {
-        server.expect(requestTo(ENDPOINT)).andRespond(
-                org.springframework.test.web.client.response.MockRestResponseCreators
-                        .withStatus(org.springframework.http.HttpStatus.UNAUTHORIZED));
+    void 网络层失败时提示是网络问题而非状态码() {
+        server.expect(requestTo(ENDPOINT))
+                .andRespond(request -> {
+                    throw new java.io.IOException("connection reset");
+                });
 
         assertThatThrownBy(() -> client.chat(simpleRequest()))
-                .isInstanceOf(LlmException.class);
+                .isInstanceOf(LlmException.class)
+                .hasMessageContaining("网络层");
     }
 }
