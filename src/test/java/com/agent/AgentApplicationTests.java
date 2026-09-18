@@ -6,6 +6,7 @@ import com.agent.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -28,6 +29,13 @@ import static org.assertj.core.api.Assertions.assertThat;
         "agent.cli.enabled=false",
         "agent.api-key=test-key"
 })
+// 显式激活测试配置（src/test/resources/application-test.yml）。
+//
+// 不加这行测试其实也能跑 —— 因为 H2 在 test classpath 上，Spring Boot 会自动
+// 配一个嵌入式内存库。但那是**隐式行为**：哪天有人在 application.yml 里加了
+// spring.datasource.url，自动配置就不再兜底，测试会转去连真实的 MySQL。
+// 显式声明数据源来源，测试才不会随主配置的改动而意外失效。
+@ActiveProfiles("test")
 class AgentApplicationTests {
 
     @Autowired

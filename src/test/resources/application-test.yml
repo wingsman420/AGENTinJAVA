@@ -1,0 +1,29 @@
+# 测试专用配置。用 @ActiveProfiles("test") 激活。
+#
+# 为什么测试要用 H2 而不是 MySQL：
+#   1. 测试不依赖 MySQL 是否装好、是否在跑 —— CI 或别人 clone 下来都能直接跑
+#   2. 每个测试跑在干净的内存库上，互不污染，也不会碰真实数据
+#   3. 启动快（内存库不需要建连接池连远程）
+#
+# 代价是 H2 与 MySQL 的 SQL 方言有细微差异，所以**生产环境的验证仍然必须
+# 在真 MySQL 上跑一遍**，不能只靠测试。这就是所谓"测试通过 ≠ 生产可用"。
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      # 每次测试都重建表结构，保证干净
+      ddl-auto: create-drop
+    # 关掉 SQL 回显，否则日志会被 CREATE TABLE 刷屏
+    show-sql: false
+    # Boot 默认 true 会在视图渲染期间保持 Session 打开，属于反模式，
+    # 且会掩盖懒加载问题。关掉后所有数据访问必须在事务内完成。
+    open-in-view: false
+
+logging:
+  level:
+    root: warn
+    com.agent: info

@@ -32,10 +32,43 @@
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
 
+        <!-- 持久化：Spring Data JPA + Hibernate + HikariCP -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- MySQL 驱动。scope=runtime：编译期用不到它（代码只依赖 JPA 接口），运行期才需要 -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
         <!-- 测试：JUnit 6 + AssertJ + Mockito + MockMvc，只参与 test 阶段 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- 测试用内存数据库。生产是 MySQL，测试不依赖 MySQL 是否装好 -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- @DataJpaTest 和 @AutoConfigureTestDatabase 在 Boot 4 里被拆到独立模块，
+             不再随 starter 传递引入，必须显式声明，否则注解直接编译不过。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-data-jpa-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-jdbc-test</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
