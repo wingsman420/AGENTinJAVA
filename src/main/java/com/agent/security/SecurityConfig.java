@@ -1,6 +1,7 @@
 package com.agent.security;
 
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -25,7 +26,16 @@ import java.io.IOException;
 @Configuration
 public class SecurityConfig {
 
+    /**
+     * 过滤链只在 Web 模式下需要。
+     *
+     * <p>加 {@code @ConditionalOnWebApplication} 是为了支持"纯终端模式"
+     * （{@code --spring.main.web-application-type=none}）：那种情况下没有 Servlet
+     * 容器，这些 Bean 既用不上、也创建不出来 —— 见下面 {@code authenticationManager}
+     * 那条注释里解释的原因。
+     */
     @Bean
+    @ConditionalOnWebApplication
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
                 // CSRF：这里**刻意关闭**。
@@ -85,8 +95,15 @@ public class SecurityConfig {
      * 暴露 AuthenticationManager 供 AuthController 做 JSON 登录用。
      *
      * <p>Boot 4 里没有直接暴露这个 Bean，需要从 {@link AuthenticationConfiguration} 取。
+     *
+     * <p><b>为什么要加 {@code @ConditionalOnWebApplication}</b>：
+     * {@code AuthenticationConfiguration} 是随 Web 安全自动配置一起提供的，
+     * 在非 Web 环境（{@code web-application-type=none}）里根本不存在这个 Bean，
+     * 于是这条 {@code @Bean} 方法会因为无法满足构造参数而让整个应用启动失败。
+     * 而纯终端模式本身不需要认证 —— 它跑在本机上，本来就不要求登录。
      */
     @Bean
+    @ConditionalOnWebApplication
     AuthenticationManager authenticationManager(AuthenticationConfiguration configuration)
             throws Exception {
         return configuration.getAuthenticationManager();

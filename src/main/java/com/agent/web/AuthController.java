@@ -12,6 +12,7 @@ import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -40,6 +41,10 @@ import java.util.Map;
  * 成功后把 SecurityContext 写回 HttpSession。
  */
 @RestController
+// 只在 Web 模式注册：它依赖 AuthenticationManager，而那个 Bean 由 Web 安全自动配置
+// 提供。纯终端模式（web-application-type=none）下没有认证这回事 ——
+// 终端跑在本机上，本来就不要求登录。
+@ConditionalOnWebApplication
 public class AuthController {
 
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);

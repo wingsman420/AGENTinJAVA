@@ -7,6 +7,17 @@ spring:
     # 下面 agent.api-key 的 ${DEEPSEEK_API_KEY:} 会自动接手。
     import: optional:classpath:application-local.yml
 
+  jpa:
+    hibernate:
+      # 启动时按实体定义自动调整表结构。
+      # 开发阶段方便，但**生产不该用它** —— 它不会删列也不会做数据迁移，
+      # 正式环境应该换成 Flyway/Liquibase 这类迁移工具，让每次结构变更可追溯、可回滚。
+      ddl-auto: update
+    # 关掉 Open Session in View。它默认开启，好处是懒加载不会报错，
+    # 代价是数据库连接会被占用到整个请求结束（含渲染响应），
+    # 而且会掩盖"N+1 查询"这类问题。显式关掉，逼着数据访问在事务内完成。
+    open-in-view: false
+
 server:
   port: 8080
   servlet:

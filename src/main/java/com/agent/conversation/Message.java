@@ -53,17 +53,25 @@ public class Message {
     /**
      * 长文本：工具结果可能很大（读文件上限 256KB）。
      *
-     * <p><b>这里必须用 {@code @Lob} 而不是 {@code @Column(length = ...)}。</b>
-     * 用 length 指定一个很大的值时，H2 会照单全收生成 {@code varchar(1000000)}，
-     * 但 **MySQL 会拒绝** —— 它的 VARCHAR 上限是 65535 <b>字节</b>，
-     * utf8mb4 下每字符最多 4 字节，所以最大只能到 16383 字符，
-     * 建表时报 "Column length too big ... use BLOB or TEXT instead"。
+     * <h2>这个字段的类型映射踩过两次坑，都记在这里</h2>
      *
-     * <p>{@code @Lob} 两边都能正确映射：MySQL → {@code longtext}，H2 → {@code CLOB}。
-     * 这是个"本地测试全绿、一上生产就炸"的典型坑。
+     * <p><b>坑一：{@code @Column(length = 1000000)} 不行。</b>
+     * H2 会照单全收生成 {@code varchar(1000000)}，但 MySQL 会拒绝 ——
+     * MySQL 的 VARCHAR 上限是 65535 <b>字节</b>，utf8mb4 下每字符最多 4 字节，
+     * 所以最大只能到 16383 字符，建表时报 "Column length too big"。
+     *
+     * <p><b>坑二：只用 {@code @Lob} 也不行。</b>
+     * 在 MySQL 上它会按默认长度 255 处理，生成 <b>{@code tinytext}</b> ——
+     * 连一条系统提示（约 500 字）都塞不进去，运行时报
+     * "Data too long for column 'content'"（错误码 1406）。
+     * 而 H2 会生成容量充足的 {@code clob}，**测试全绿也发现不了**。
+     *
+     * <p><b>正确写法：{@code @Lob} 加上足够大的 length。</b>
+     * 两边都能得到容量足够的类型：MySQL → {@code mediumtext/longtext}，H2 → {@code clob}。
+     * 这里显式写出 16MB 量级，覆盖 256KB 的工具结果上限绰绰有余。
      */
     @Lob
-    @Column(name = "content")
+    @Column(name = "content", length = 16_777_215)
     private String content;
 
     /**
