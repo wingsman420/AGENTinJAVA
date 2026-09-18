@@ -10,7 +10,47 @@
 
 # 一、启动方法
 
-## 1.1 API Key（已配好，可直接跳过）
+## 1.1 前置条件：MySQL（已配好，可直接跳过）
+
+对话、用户、会话都**持久化在 MySQL 里**，所以启动前数据库必须可用。
+
+当前配置（`src/main/resources/application-local.yml`，已被 git 忽略）：
+
+```
+主机  localhost:3306
+库名  agent_db
+账号  agent        ← 专用账号，只对 agent_db 有权限，不是 root
+```
+
+表结构由 JPA 在启动时自动创建（`spring.jpa.hibernate.ddl-auto: update`），首次启动不用手工建表，MySQL 里只需要有 `agent_db` 这个库。
+
+**换台机器要从零搭建的话**，执行：
+
+```sql
+CREATE DATABASE agent_db
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_unicode_ci;
+
+CREATE USER 'agent'@'localhost' IDENTIFIED BY '你的密码';
+GRANT ALL PRIVILEGES ON agent_db.* TO 'agent'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+然后把连接信息写进 `application-local.yml`：
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/agent_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: agent
+    password: 你的密码
+```
+
+> **为什么不用 root**：应用只需要读写自己那几张表。用 root 等于把整个数据库服务器的控制权交给它，一旦应用被攻破，损失不止这一个库。
+>
+> **为什么 `ddl-auto` 只适合开发**：它只会加列、不会删列，也不做数据迁移。正式环境应该换成 Flyway / Liquibase，让每次结构变更可追溯、可回滚。
+
+## 1.2 API Key（已配好，可直接跳过）
 
 Key 当前配在 `src/main/resources/application-local.yml`，**开箱即用，不需要设环境变量、也不需要加任何启动参数**。
 
@@ -32,7 +72,7 @@ spring:
 
 > ⚠️ **部署到服务器前必须删掉这个文件**，原因见 [2.4 部署到服务器](#24-部署到服务器)。
 
-## 1.2 方式一：IDEA 里运行（开发时推荐）
+## 1.3 方式一：IDEA 里运行（开发时推荐）
 
 1. IDEA → `File → Open` → 选择本项目根目录
 2. 打开 `src/main/java/com/agent/AgentApplication.java`
@@ -40,7 +80,7 @@ spring:
 
 不需要配置任何环境变量或启动参数。
 
-## 1.3 方式二：命令行运行 jar
+## 1.4 方式二：命令行运行 jar
 
 ```bash
 # 先打包（见第二节）
@@ -52,7 +92,7 @@ java -jar target/agent-cli-0.1.0.jar
 
 Windows 的 cmd / PowerShell 把 `./mvnw` 换成 `mvnw.cmd`。
 
-## 1.4 方式三：`mvn spring-boot:run`（改代码后免打包）
+## 1.5 方式三：`mvn spring-boot:run`（改代码后免打包）
 
 开发时改了代码不想重新打包，直接：
 
@@ -62,7 +102,7 @@ Windows 的 cmd / PowerShell 把 `./mvnw` 换成 `mvnw.cmd`。
 
 它会重新编译再启动，约 1～2 秒。**注意这个命令是阻塞的**，改了代码要先 `Ctrl+C` 停掉再重跑，直接再开一个终端会报 `Port 8080 was already in use`。
 
-## 1.5 两种运行模式
+## 1.6 两种运行模式
 
 | 模式 | 命令 | 行为 |
 |---|---|---|
@@ -71,7 +111,7 @@ Windows 的 cmd / PowerShell 把 `./mvnw` 换成 `mvnw.cmd`。
 
 服务器上即使不加这个参数也没关系 —— stdin 关闭时终端循环会自动失效，Web 服务照常运行。加上它只是让意图更明确。
 
-## 1.6 启动成功的标志
+## 1.7 启动成功的标志
 
 ```
 ============================================================
@@ -99,7 +139,7 @@ Agent > Agent.java 的 chat 方法实现了这个循环，从第 88 行开始…
 
 输入 `exit` 退出终端对话（Web API 不受影响）。
 
-## 1.7 换端口
+## 1.8 换端口
 
 ```bash
 java -jar target/agent-cli-0.1.0.jar --server.port=9090
@@ -175,19 +215,21 @@ java -version    # 确认 >= 17
 
 ### 部署前的检查清单
 
-- [ ] **已删除 `src/main/resources/application-local.yml`** —— 它在 `src/main/resources/` 下，会被**打进 jar**。不删的话，你的 API Key 就跟在 jar 里一起被传出去了。
-- [ ] 服务器上通过环境变量 `DEEPSEEK_API_KEY` 提供 key
-- [ ] 加了 `--agent.cli.enabled=false`
-- [ ] **加了鉴权**（当前 Web API 任何人都能调，见下方警告）
+- [ ] **已删除 `src/main/resources/application-local.yml`** —— 它在 `src/main/resources/` 下，会被**打进 jar**。不删的话，你的 API Key **和数据库密码**就跟在 jar 里一起被传出去了。
+- [ ] 服务器上通过环境变量提供 `DEEPSEEK_API_KEY` 与数据库密码
+- [ ] 加了 `--agent.cli.enabled=false`（服务器上不需要终端交互）
+- [ ] 数据库已就绪，且**不要用 root 账号**（见 [1.1](#11-前置条件mysql已配好可直接跳过)）
 
-### ⚠️ 当前没有鉴权，不要直接暴露到公网
+### 鉴权现状与仍需注意的地方
 
-Web API 目前**没有任何认证**。任何能访问到 8080 端口的人都可以：
+**已经加了登录鉴权**（见 [3.1](#31-鉴权)）：除注册/登录外的所有 API 都要求登录，且只能访问自己的会话。
 
-- 调用你的 API，消耗你的余额
-- **通过它读取你工作目录里的任何文件**
+但暴露到公网前仍要注意：
 
-本地自己用没问题。要对外提供服务，至少需要加一层认证（比如 API Key 请求头校验）。
+- **走 HTTPS**。现在是 HTTP，Cookie 在链路上是明文传输的。部署到 HTTPS 后要把 `server.servlet.session.cookie.secure` 打开。
+- **`ddl-auto: update` 要换掉**，改成 Flyway / Liquibase 之类的迁移工具。
+- **注册接口是开放的**。任何人都能注册账号。如果要对外提供服务，应该关掉注册或加邀请码机制。
+- **会话 Cookie 的 `SameSite=Strict`** 意味着跨站调用不会带上它。如果你的前端部署在不同域名下，需要改成 `Lax` 并**同时把 CSRF 防护打开**（当前是关的，补偿措施就是 SameSite，两者是绑定的）。
 
 ### 可选的替代方案：把 key 放到 jar 外面
 
@@ -211,46 +253,90 @@ spring:
 
 # 三、Web API
 
+**除了注册和登录，所有接口都要求先登录。** 登录成功后服务端下发 `JSESSIONID` Cookie，
+后续请求带上它即可 —— curl 用 `-c` 保存、`-b` 回传。
+
+> 只想快速试一下的话，**终端模式更省事**：直接 `java -jar target/agent-cli-0.1.0.jar`，
+> 不需要登录，对话一样会存进数据库（归到内置的 `local` 用户）。
+
+## 3.1 鉴权
+
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `POST` | `/api/chat` | 发消息，拿回复 |
-| `GET` | `/api/status` | 服务状态（模型、工作目录、工具列表） |
-| `GET` | `/api/sessions` | 当前活跃会话 id 列表 |
-| `DELETE` | `/api/sessions/{id}` | 清空某个会话的上下文 |
+| `POST` | `/api/auth/register` | 注册（用户名唯一，密码 BCrypt 哈希后存储） |
+| `POST` | `/api/auth/login` | 登录，成功返回 `Set-Cookie` |
+| `POST` | `/api/auth/logout` | 注销，销毁会话 |
+| `GET` | `/api/me` | 当前登录用户 |
 
-## 对话示例
+完整流程：
 
 ```bash
-curl -X POST http://localhost:8080/api/chat \
+# 1) 注册
+curl -X POST http://localhost:8080/api/auth/register \
      -H "Content-Type: application/json" \
-     -d '{"message":"当前目录下有哪些文件？"}'
+     -d '{"username":"alice","password":"secret123"}'
+
+# 2) 登录，把 Cookie 存进文件
+curl -c cookies.txt -X POST http://localhost:8080/api/auth/login \
+     -H "Content-Type: application/json" \
+     -d '{"username":"alice","password":"secret123"}'
+
+# 3) 之后每个请求都带上它
+curl -b cookies.txt http://localhost:8080/api/me
+```
+
+> 密码**绝不存明文**，库里是 BCrypt 哈希。登录失败时统一提示"用户名或密码错误"，
+> 不区分"用户不存在"和"密码错误" —— 区分开来等于给攻击者一个枚举用户名的接口。
+
+## 3.2 会话的增删改查
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/conversations` | 列出**当前用户**的会话，最近活跃的在前 |
+| `POST` | `/api/conversations` | 新建会话 |
+| `GET` | `/api/conversations/{id}` | 读会话详情 + 完整消息历史 |
+| `PATCH` | `/api/conversations/{id}` | 改标题 |
+| `DELETE` | `/api/conversations/{id}` | 删会话（连带删掉它的消息） |
+| `DELETE` | `/api/conversations/{id}/messages` | **只清消息、保留会话**（对齐 CLI 的 `clear`） |
+
+> **越权保护**：以上接口只操作**你自己**的会话。用别人的会话 id 一律返回 404 ——
+> 用 404 而不是 403，是为了不泄露"这个 id 确实存在"。查询条件里直接带上 userId，
+> 从查询层就不给越权的可能。
+
+## 3.3 对话
+
+```bash
+# 先建一个会话，从响应里拿到 id
+curl -b cookies.txt -X POST http://localhost:8080/api/conversations \
+     -H "Content-Type: application/json" -d '{"title":"我的对话"}'
+
+# 发消息
+curl -b cookies.txt -X POST http://localhost:8080/api/chat \
+     -H "Content-Type: application/json" \
+     -d '{"conversationId":1,"message":"当前目录下有哪些文件？"}'
 ```
 
 响应：
 
 ```json
-{
-  "sessionId": "691d920a-265e-4539-b2c9-d2c2aa2cb9fb",
-  "reply": "当前目录下包含 pom.xml、README.md …",
-  "historySize": 5
-}
+{ "conversationId": 1, "reply": "当前目录下包含 pom.xml …", "historySize": 5 }
 ```
 
-**首次请求要把 `sessionId` 存下来**，后续带上它就能延续上下文：
+`historySize` 是当前会话的消息条数（含 system 与工具消息），可用来观察上下文增长。
 
-```bash
-curl -X POST http://localhost:8080/api/chat \
-     -H "Content-Type: application/json" \
-     -d '{"sessionId":"691d920a-...","message":"那 src 目录呢？"}'
-```
+## 3.4 状态
 
-不传 `sessionId` 时服务端会自动生成一个，每次请求都是全新会话。
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/status` | 服务状态（模型、工作目录、工具列表、当前用户、会话数） |
 
-## 错误码
+## 3.5 错误码
 
 | 状态码 | 含义 |
 |---|---|
-| `400` | 请求参数不合法（如 `message` 为空） |
+| `400` | 请求参数不合法 |
+| `401` | 未登录或会话已过期 —— 客户端据此知道该去登录，而不是"没权限" |
+| `404` | 资源不存在，**或者存在但不属于你** |
 | `502` | 调用上游模型失败（网络、限流、鉴权等），可重试 |
 
 ---
@@ -268,7 +354,8 @@ lab1/lab1/
     │   │   ├── AgentApplication.java       主入口
     │   │   ├── config/
     │   │   │   ├── AgentProperties.java    配置绑定（agent.*）
-    │   │   │   └── AgentConfig.java        装配 RestClient 与 LlmClient
+    │   │   │   ├── AgentConfig.java        装配 RestClient 与 LlmClient
+    │   │   │   └── WebConfig.java          给 JSON 响应补 charset=UTF-8
     │   │   ├── llm/
     │   │   │   ├── LlmClient.java          ★ 接口：让核心逻辑可离线测试
     │   │   │   ├── DeepSeekClient.java     DeepSeek 实现（OpenAI 兼容协议）
@@ -276,8 +363,7 @@ lab1/lab1/
     │   │   │   └── model/                  协议数据模型
     │   │   ├── core/
     │   │   │   ├── Agent.java              ★ ReAct 循环（核心）
-    │   │   │   ├── ChatSession.java        单会话多轮历史
-    │   │   │   └── SessionStore.java       内存会话表
+    │   │   │   └── ChatSession.java        单会话多轮历史（内存态）
     │   │   ├── tool/
     │   │   │   ├── AgentTool.java          工具接口
     │   │   │   ├── ToolRegistry.java       工具注册与调度
@@ -285,12 +371,34 @@ lab1/lab1/
     │   │   │   ├── ListFilesTool.java      列目录
     │   │   │   ├── ReadFileTool.java       读文件（带行号）
     │   │   │   └── SearchCodeTool.java     按关键字搜内容
-    │   │   ├── cli/TerminalChatRunner.java 终端入口
-    │   │   └── web/ChatController.java     Web API 入口
+    │   │   ├── user/                       ★ 用户
+    │   │   │   ├── User.java               @Entity
+    │   │   │   ├── UserRepository.java
+    │   │   │   └── UserService.java        注册（BCrypt 哈希）
+    │   │   ├── conversation/               ★ 会话持久化
+    │   │   │   ├── Conversation.java       会话实体
+    │   │   │   ├── Message.java            消息实体
+    │   │   │   ├── ToolCallsJsonConverter.java  把 List<ToolCall> 映射成 JSON 列
+    │   │   │   ├── ConversationRepository.java / MessageRepository.java
+    │   │   │   ├── ConversationService.java ★ 事务边界 + 归属校验
+    │   │   │   └── ConversationView.java / MessageView.java  对外视图
+    │   │   ├── security/                   ★ 鉴权
+    │   │   │   ├── SecurityConfig.java     SecurityFilterChain（lambda DSL）
+    │   │   │   ├── AppUserDetailsService.java
+    │   │   │   └── AppUserPrincipal.java   principal 带 userId
+    │   │   ├── cli/
+    │   │   │   ├── TerminalChatRunner.java 终端入口（免登录，归属 local 用户）
+    │   │   │   └── ConsoleEncoding.java    终端编码探测
+    │   │   └── web/
+    │   │       ├── AuthController.java          注册 / 登录 / 注销 / me
+    │   │       ├── ConversationController.java  会话 CRUD
+    │   │       ├── ChatController.java          对话
+    │   │       ├── ApiExceptionHandler.java     异常 → 状态码
+    │   │       └── dto/                         请求 / 响应体
     │   └── resources/
     │       ├── application.yml
-    │       └── application-local.yml       ← 你的 key（已 gitignore，不提交）
-    └── test/java/com/agent/                80 个测试，全部离线运行
+    │       └── application-local.yml       ← key + 数据库连接（已 gitignore）
+    └── test/java/com/agent/                131 个测试，全部离线（H2 内存库）
 ```
 
 ---
@@ -318,6 +426,34 @@ lab1/lab1/
 3. 模型基于真实内容数出答案
 
 **这就是它和"一问一答"的本质区别** —— 模型会自己去获取所需信息，而不是凭训练数据编造。
+
+## 一条消息的完整流转（含持久化）
+
+```
+POST /api/chat  { conversationId, message }
+   ↓
+SecurityFilterChain 校验登录状态 → 未登录直接 401
+   ↓
+ChatController 从 SecurityContext 取当前用户 id
+   ↓
+ConversationService.chat(userId, conversationId, message)
+   │
+   ├─ ① 事务内：按 (会话id, 用户id) 查会话 → 读历史 → 重建 ChatSession
+   │
+   ├─ ② 事务外：agent.chat(session, message) ← 可能耗时 10~30 秒
+   │
+   └─ ③ 事务内：把新增的消息写回 messages 表
+   ↓
+返回 { conversationId, reply, historySize }
+```
+
+这张图里三个地方是**刻意这么设计的**：
+
+**① 用户 id 只能来自 SecurityContext。** 绝不能从请求体里取 —— 那是越权的经典入口，客户端想传谁的 id 就传谁的。
+
+**② 归属校验放在查询条件里**（`findByIdAndUserId`），而不是"先查出来再判断是谁的"。后者只要有一处忘记判断就是静默泄露，而且不报错、不崩溃，靠人工点页面发现不了。
+
+**③ 大模型调用必须放在事务外。** 它是一次 10~30 秒的网络 I/O。如果包在事务里，那个事务会一直占着一条数据库连接，并发几个请求就能把连接池（默认 10 条）耗尽，表现为"服务突然不响应了"，而根因却是一次 LLM 调用慢。所以事务被拆成"读 → 事务外调模型 → 写"三段。
 
 ---
 
@@ -348,6 +484,8 @@ Agent > 该路径超出了我的工作目录，出于安全限制无法访问。
 
 # 七、配置项
 
+## 7.1 agent.*（业务配置）
+
 ```yaml
 agent:
   base-url: https://api.deepseek.com   # 换供应商改这里
@@ -359,6 +497,43 @@ agent:
   workspace: ${user.dir}               # 文件沙箱根目录
   cli:
     enabled: true                      # 服务器部署时设为 false
+```
+
+## 7.2 数据源与 JPA
+
+```yaml
+spring:
+  datasource:                          # 实际值在 application-local.yml（含密码）
+    url: jdbc:mysql://localhost:3306/agent_db?...
+    username: agent
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: update                 # 开发用；生产应换成 Flyway/Liquibase
+    open-in-view: false                # 关掉 OSIV，避免连接被占到请求结束
+  servlet:
+    session:
+      cookie:
+        http-only: true                # JS 读不到会话 Cookie
+        same-site: strict              # 跨站请求不带它（关 CSRF 的补偿措施）
+```
+
+## 7.3 换成其它模型 / 供应商
+
+DeepSeek 用的是 OpenAI 兼容协议，换供应商只需改 `base-url` 和 `model` 两行：
+
+| 供应商 | base-url |
+|---|---|
+| DeepSeek | `https://api.deepseek.com` |
+| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode` |
+| 智谱 | `https://open.bigmodel.cn/api/paas/v4` |
+| 本地 Ollama | `http://localhost:11434` |
+
+也可以临时用启动参数覆盖，不改文件：
+
+```bash
+java -jar target/agent-cli-0.1.0.jar --agent.model=deepseek-v4-pro
+java -jar target/agent-cli-0.1.0.jar --agent.base-url=http://localhost:11434 --agent.model=qwen2.5:7b
 ```
 
 ## 换成其它模型 / 供应商
@@ -387,16 +562,35 @@ java -jar target/agent-cli-0.1.0.jar --agent.base-url=http://localhost:11434 --a
 ./mvnw test
 ```
 
-**全部 80 个测试都不联网、不消耗 API 余额。** 靠的是把 `LlmClient` 抽成接口，测试时注入按脚本返回的 `FakeLlmClient`。这样既能离线跑、又能构造真实 API 很难复现的场景（模型连续调三轮工具、回答被截断、返回空 choices……）。
+**全部 131 个测试都不联网、不消耗 API 余额，也不需要 MySQL** —— 测试跑在 H2 内存库上（`src/test/resources/application-test.yml`），启动快、互相隔离、不碰真实数据。
+
+不联网靠的是把 `LlmClient` 抽成接口：单元测试注入按脚本返回的 `FakeLlmClient`，端到端测试用 `@MockitoBean` 把它换掉。这样既能离线跑，又能构造真实 API 很难复现的场景（模型连续调三轮工具、回答被截断、返回空 choices……）。
 
 | 测试类 | 数量 | 覆盖内容 |
 |---|---:|---|
-| `AgentTest` | 13 | ReAct 循环、工具结果回传、轮数上限、思维链不外泄 |
-| `DeepSeekClientTest` | 12 | 请求/响应的线格式、错误处理 |
-| `FileToolsTest` | 25 | 三个工具的正常路径与各种失败情形 |
+| `AgentTest` | 14 | ReAct 循环、工具结果回传、轮数上限、思维链不外泄、清空历史 |
+| `ChatSessionTest` | 7 | 会话的 clear 语义、messages 返回副本 |
+| `DeepSeekClientTest` | 16 | 请求/响应线格式、**401/429/404/5xx 状态码区分**、网络层错误 |
+| `FileToolsTest` | 25 | 三个文件工具的正常路径与各种失败情形 |
 | `WorkspaceGuardTest` | 16 | 路径穿越、绝对路径越界、符号链接绕过 |
-| `ChatControllerTest` | 11 | HTTP 状态码、会话上下文、参数校验 |
-| `AgentApplicationTests` | 3 | Spring 容器能否启动、工具是否被自动注册 |
+| `MessagePersistenceTest` | 9 | record 集合的 JSON 列往返、消息顺序、归属查询 |
+| `ConversationServiceTest` | 15 | 会话 CRUD、**越权拒绝（5 例）**、对话落库 |
+| `AuthFlowTest` | 10 | 注册/登录/注销、401 拦截、Cookie 安全属性、防用户名枚举 |
+| `ConversationApiTest` | 16 | 完整链路、**越权隔离（5 例）**、参数校验 |
+| `AgentApplicationTests` | 3 | Spring 容器启动、工具自动注册 |
+
+> **`AuthFlowTest` 和 `ConversationApiTest` 用的是 JDK 自带的 `HttpClient` 打真实端口**，
+> 而不是 MockMvc —— 因为 MockMvc 不经过真正的 Servlet 容器和 Spring Security 过滤器链，
+> 测不到"未登录被拦成 401""Cookie 有没有正确下发"这类关键行为。
+>
+> 但它们**跑在 H2 上**，所以仍然测不出 MySQL 特有的问题（比如列类型映射差异）——
+> 这就是"测试全绿 ≠ 生产可用"，真实 MySQL 上必须再验证一遍。
+
+想看模型实际收发的原始 JSON：
+
+```bash
+java -jar target/agent-cli-0.1.0.jar --logging.level.com.agent=debug
+```
 
 想看模型实际收发的原始 JSON：
 
@@ -419,7 +613,11 @@ java -jar target/agent-cli-0.1.0.jar --logging.level.com.agent=debug
 
 **回答是空的？** 多半是 `max-tokens` 太小。推理模型回答前会先输出思维链，同样消耗 token 预算；预算耗尽时 `content` 会是空字符串。调大 `agent.max-tokens` 即可。
 
-**启动报 `未配置 DeepSeek API Key`？** `application-local.yml` 不存在或没写 key，同时环境变量也没设。按 [1.1](#11-api-key已配好可直接跳过) 配一下。
+**启动报 `未配置 DeepSeek API Key`？** `application-local.yml` 不存在或没写 key，同时环境变量也没设。按 [1.2](#12-api-key已配好可直接跳过) 配一下。
+
+**启动报连不上数据库？** 先确认 MySQL 服务在跑（`netstat -ano | findstr :3306`），再核对 `application-local.yml` 里的库名/账号/密码。见 [1.1](#11-前置条件mysql已配好可直接跳过)。
+
+**报 `Data too long for column 'content'`？** 表是旧版本建的。JPA 的 `ddl-auto: update` **只加列不改类型**，所以从旧版本升级上来的库需要手工重建表：`DROP TABLE messages;`（会丢历史），或手工 `ALTER TABLE messages MODIFY content MEDIUMTEXT;`。
 
 **端口 8080 被占用？** `--server.port=9090`，或找出占用进程关掉。查占用：
 
