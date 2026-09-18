@@ -77,6 +77,26 @@ public class ConversationService {
         });
     }
 
+    /**
+     * 取最近活跃的会话；一个都没有就新建一个。
+     *
+     * <p>给终端入口用：终端进程每次启动都接续上一次的对话，而不是每次开一个新会话。
+     */
+    public Long findLatestOrCreate(Long userId, String defaultTitle) {
+        return tx.execute(status -> {
+            List<Conversation> existing = conversations.findByUserIdOrderByUpdatedAtDesc(userId);
+            if (!existing.isEmpty()) {
+                return existing.get(0).getId();
+            }
+            User user = requireUser(userId);
+            String systemPrompt = agent.systemPrompt();
+            Conversation created = conversations.save(
+                    new Conversation(user, normalizeTitle(defaultTitle), systemPrompt));
+            messages.save(new Message(created, 1, "system", systemPrompt, null, null));
+            return created.getId();
+        });
+    }
+
     public List<ConversationView> list(Long userId) {
         return tx.execute(status -> conversations.findByUserIdOrderByUpdatedAtDesc(userId).stream()
                 .map(c -> ConversationView.summary(c, messages.countByConversationId(c.getId())))

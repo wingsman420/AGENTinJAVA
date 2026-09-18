@@ -1,15 +1,25 @@
 package com.agent.web.dto;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
 /**
- * Web 对话接口的请求体。
+ * 发消息的请求体。
  *
  * <pre>
  * POST /api/chat
- * { "sessionId": "abc", "message": "当前目录有哪些文件？" }
+ * { "conversationId": 1, "message": "当前目录有哪些文件？" }
  * </pre>
  *
- * <p>{@code sessionId} 可以省略，服务端会自动生成一个并在响应里返回。
- * 后续请求带上同一个 id，就能接着之前的上下文继续聊。
+ * <p>会话持久化之后 {@code conversationId} 变成**必填** —— 之前是服务端按 sessionId
+ * 自动建，现在会话是一等实体，由客户端先创建再引用，语义更清晰，
+ * 也让"这个 id 是不是你的"成为每次请求都要校验的事。
  */
-public record ChatRequestDto(String sessionId, String message) {
+public record ChatRequestDto(
+        @NotNull(message = "conversationId 不能为空")
+        Long conversationId,
+
+        @NotBlank(message = "message 不能为空")
+        String message
+) {
 }

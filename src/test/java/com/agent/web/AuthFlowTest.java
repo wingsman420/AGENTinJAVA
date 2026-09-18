@@ -10,28 +10,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 鉴权流程的端到端测试。
+ * 鉴权流程的端到端测试：注册、登录、会话下发、未登录拦截。
  *
- * <p><b>为什么用 JDK 自带的 HttpClient 打真实端口，而不是 MockMvc</b>：
- * <ul>
- *   <li>MockMvc 不经过真正的 Servlet 容器和 Spring Security 过滤器链，
- *       测不到"未登录被拦成 401""Cookie 有没有正确下发"这类关键行为</li>
- *   <li>Boot 4 把测试自动配置类拆到了独立构件（{@code @DataJpaTest} 就是例子），
- *       用 {@code TestRestTemplate}/{@code @AutoConfigureMockMvc} 还要先确认坐标。
- *       JDK 自带 HttpClient 零依赖，反而更省事</li>
- * </ul>
- *
- * <p>Cookie 需要手动从 {@code Set-Cookie} 取出来再带回去 —— 正好把
- * "Session 方案客户端要做什么"演示清楚了。
+ * <p>打的是**真实端口**，所以走完了完整的 Servlet 容器 + Spring Security 过滤器链 ——
+ * 这是 MockMvc 测不到的层次。
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -51,42 +38,37 @@ class AuthFlowTest {
     @Autowired
     private MessageRepository messages;
 
-    private final HttpClient http = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
+    private ApiTestClient client;
 
     @BeforeEach
     void setUp() {
         messages.deleteAll();
         conversations.deleteAll();
         users.deleteAll();
+        client = new ApiTestClient(port);
     }
 
     // ---------- 正常流程 ----------
 
     @Test
     void 注册后能登录并用拿到的会话访问受保护接口() throws Exception {
-        assertThat(post("/api/auth/register",
+        assertThat(client.post("/api/auth/register",
                 "{\"username\":\"alice\",\"password\":\"secret123\"}").statusCode())
                 .isEqualTo(201);
 
-        HttpResponse<String> login = post("/api/auth/login",
-                "{\"username\":\"alice\",\"password\":\"secret123\"}");
+        HttpResponse<String> login = client.login("alice", "secret123");
         assertThat(login.statusCode()).isEqualTo(200);
+        assertThat(client.currentCookie()).as("登录成功必须下发会话 Cookie").isNotBlank();
 
-        String cookie = sessionCookieOf(login);
-        assertThat(cookie).as("登录成功必须下发会话 Cookie").isNotBlank();
-
-        HttpResponse<String> me = get("/api/me", cookie);
+        HttpResponse<String> me = client.get("/api/me");
         assertThat(me.statusCode()).isEqualTo(200);
         assertThat(me.body()).contains("alice");
     }
 
     @Test
-    void 会话Cookie带上了安全属性() throws Exception {
-        post("/api/auth/register", "{\"username\":\"bob\",\"password\":\"secret123\"}");
-        HttpResponse<String> login = post("/api/auth/login",
-                "{\"username\":\"bob\",\"password\":\"secret123\"}");
+    void 会话Cookie带上安全属性() throws Exception {
+        client.post("/api/auth/register", "{\"username\":\"bob\",\"password\":\"secret123\"}");
+        HttpResponse<String> login = client.login("bob", "secret123");
 
         String setCookie = login.headers().firstValue("Set-Cookie").orElse("");
         // HttpOnly：JS 读不到，XSS 偷不走会话
@@ -99,7 +81,7 @@ class AuthFlowTest {
 
     @Test
     void 未登录访问受保护接口返回401() throws Exception {
-        HttpResponse<String> response = get("/api/me", null);
+        HttpResponse<String> response = client.get("/api/me");
 
         // 必须是 401 而不是 403 —— 客户端靠这个区分"该去登录"和"登录了但没权限"
         assertThat(response.statusCode()).isEqualTo(401);
@@ -108,21 +90,21 @@ class AuthFlowTest {
 
     @Test
     void 用伪造的会话Cookie访问仍是401() throws Exception {
-        // HTTP 头只能是 ASCII，这里不能用中文（会抛 invalid header value）
-        HttpResponse<String> response = get("/api/me", "JSESSIONID=forged-session-id-123456");
+        // HTTP 头只能是 ASCII，这里不能用中文
+        client.useCookie("JSESSIONID=forged-session-id-123456");
 
-        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(client.get("/api/me").statusCode()).isEqualTo(401);
     }
 
     // ---------- 登录失败 ----------
 
     @Test
     void 密码错误返回401且提示不泄露用户是否存在() throws Exception {
-        post("/api/auth/register", "{\"username\":\"carol\",\"password\":\"secret123\"}");
+        client.post("/api/auth/register", "{\"username\":\"carol\",\"password\":\"secret123\"}");
 
-        HttpResponse<String> wrongPassword = post("/api/auth/login",
+        HttpResponse<String> wrongPassword = client.post("/api/auth/login",
                 "{\"username\":\"carol\",\"password\":\"wrong-password\"}");
-        HttpResponse<String> noSuchUser = post("/api/auth/login",
+        HttpResponse<String> noSuchUser = client.post("/api/auth/login",
                 "{\"username\":\"nobody\",\"password\":\"secret123\"}");
 
         // 两者必须返回**完全一致**的响应 —— 区分开来等于给攻击者一个用户名枚举接口
@@ -135,9 +117,9 @@ class AuthFlowTest {
 
     @Test
     void 重复用户名注册返回400() throws Exception {
-        post("/api/auth/register", "{\"username\":\"dave\",\"password\":\"secret123\"}");
+        client.post("/api/auth/register", "{\"username\":\"dave\",\"password\":\"secret123\"}");
 
-        HttpResponse<String> again = post("/api/auth/register",
+        HttpResponse<String> again = client.post("/api/auth/register",
                 "{\"username\":\"dave\",\"password\":\"another123\"}");
 
         assertThat(again.statusCode()).isEqualTo(400);
@@ -146,7 +128,7 @@ class AuthFlowTest {
 
     @Test
     void 过短的密码被拒绝() throws Exception {
-        HttpResponse<String> response = post("/api/auth/register",
+        HttpResponse<String> response = client.post("/api/auth/register",
                 "{\"username\":\"eve\",\"password\":\"123\"}");
 
         assertThat(response.statusCode()).isEqualTo(400);
@@ -154,64 +136,27 @@ class AuthFlowTest {
 
     @Test
     void 密码不会以明文形式出现在响应里() throws Exception {
-        String body = post("/api/auth/register",
+        String body = client.post("/api/auth/register",
                 "{\"username\":\"frank\",\"password\":\"secret123\"}").body();
 
         assertThat(body).doesNotContain("secret123").contains("frank");
     }
 
     @Test
+    void 请求体不是合法JSON时返回400而不是500() throws Exception {
+        HttpResponse<String> response = client.post("/api/auth/register", "{这不是 JSON");
+
+        assertThat(response.statusCode()).isEqualTo(400);
+    }
+
+    @Test
     void 注销后会话失效() throws Exception {
-        post("/api/auth/register", "{\"username\":\"grace\",\"password\":\"secret123\"}");
-        String cookie = sessionCookieOf(post("/api/auth/login",
-                "{\"username\":\"grace\",\"password\":\"secret123\"}"));
+        client.post("/api/auth/register", "{\"username\":\"grace\",\"password\":\"secret123\"}");
+        client.login("grace", "secret123");
+        assertThat(client.get("/api/me").statusCode()).isEqualTo(200);
 
-        postWithCookie("/api/auth/logout", cookie);
+        client.post("/api/auth/logout", null);
 
-        assertThat(get("/api/me", cookie).statusCode()).isEqualTo(401);
-    }
-
-    // ---------- 辅助 ----------
-
-    private HttpResponse<String> post(String path, String json) throws Exception {
-        return send(HttpRequest.newBuilder()
-                .uri(URI.create(base() + path))
-                .header("Content-Type", "application/json; charset=utf-8")
-                .POST(HttpRequest.BodyPublishers.ofString(json, java.nio.charset.StandardCharsets.UTF_8))
-                .build());
-    }
-
-    private HttpResponse<String> postWithCookie(String path, String cookie) throws Exception {
-        return send(HttpRequest.newBuilder()
-                .uri(URI.create(base() + path))
-                .header("Cookie", cookie)
-                .POST(HttpRequest.BodyPublishers.noBody())
-                .build());
-    }
-
-    private HttpResponse<String> get(String path, String cookie) throws Exception {
-        HttpRequest.Builder builder = HttpRequest.newBuilder().uri(URI.create(base() + path)).GET();
-        if (cookie != null) {
-            builder.header("Cookie", cookie);
-        }
-        return send(builder.build());
-    }
-
-    private HttpResponse<String> send(HttpRequest request) throws Exception {
-        return http.send(request, HttpResponse.BodyHandlers.ofString(
-                java.nio.charset.StandardCharsets.UTF_8));
-    }
-
-    private String base() {
-        return "http://localhost:" + port;
-    }
-
-    /** 从 Set-Cookie 里取出 JSESSIONID=xxx 这一段（后续请求要原样带回去）。 */
-    private static String sessionCookieOf(HttpResponse<String> response) {
-        return response.headers().allValues("Set-Cookie").stream()
-                .filter(value -> value.startsWith("JSESSIONID="))
-                .map(value -> value.split(";", 2)[0])
-                .findFirst()
-                .orElse("");
+        assertThat(client.get("/api/me").statusCode()).isEqualTo(401);
     }
 }

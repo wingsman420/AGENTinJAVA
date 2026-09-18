@@ -5,12 +5,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.stream.Collectors;
 
 /**
  * 全局异常 → HTTP 状态码的映射。
@@ -52,6 +55,27 @@ public class ApiExceptionHandler {
     public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException e) {
         return ResponseEntity.badRequest()
                 .body(Map.of("error", safeMessage(e, "请求参数不合法")));
+    }
+
+    /**
+     * {@code @Valid} 校验失败 → 400。
+     *
+     * <p>把每个字段的错误拼起来返回，方便调用方一次看到全部问题，
+     * 而不是改一个报一个。
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> handleValidation(MethodArgumentNotValidException e) {
+        String detail = e.getBindingResult().getFieldErrors().stream()
+                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .collect(Collectors.joining("; "));
+        return ResponseEntity.badRequest()
+                .body(Map.of("error", detail.isEmpty() ? "请求参数校验失败" : detail));
+    }
+
+    /** 请求体格式错误（比如不是合法 JSON）→ 400，而不是让框架返回 500。 */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, String>> handleUnreadable(HttpMessageNotReadableException e) {
+        return ResponseEntity.badRequest().body(Map.of("error", "请求体格式错误，需要合法 JSON"));
     }
 
     /**

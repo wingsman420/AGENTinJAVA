@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.NoSuchElementException;
+import java.util.UUID;
 
 /**
  * 用户注册与查询。
@@ -49,5 +50,22 @@ public class UserService {
     public User requireById(Long id) {
         return users.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("用户不存在: " + id));
+    }
+
+    /**
+     * 取（或创建）终端入口使用的内置用户。
+     *
+     * <p>终端在一台本机上运行，谁坐在电脑前就是谁，所以不要求登录 ——
+     * 但它的对话也要存进数据库，就统一挂在这个内置账号下。
+     *
+     * <p>密码用一个随机 UUID 哈希后存起来，**没人知道它**：
+     * 这个账号不是给 Web 登录用的，随机密码让它即便被猜到用户名也登不进来。
+     */
+    @Transactional
+    public User findOrCreateLocalUser(String username) {
+        return users.findByUsername(username).orElseGet(() -> {
+            String unknowable = UUID.randomUUID().toString() + UUID.randomUUID();
+            return users.save(new User(username, passwordEncoder.encode(unknowable), "本地终端用户"));
+        });
     }
 }
