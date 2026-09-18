@@ -38,6 +38,18 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
+        <!-- 鉴权：Spring Security，用 Session + Cookie 方案 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- 参数校验：@NotBlank / @Valid 等 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
         <!-- MySQL 驱动。scope=runtime：编译期用不到它（代码只依赖 JPA 接口），运行期才需要 -->
         <dependency>
             <groupId>com.mysql</groupId>

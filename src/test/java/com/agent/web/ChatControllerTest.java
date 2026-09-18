@@ -48,7 +48,11 @@ class ChatControllerTest {
         AgentProperties props = TestFixtures.props(workspace);
         Agent agent = new Agent(llmClient, new ToolRegistry(List.of()), props);
         sessions = new SessionStore(agent);
-        mockMvc = MockMvcBuilders.standaloneSetup(new ChatController(agent, sessions, props)).build();
+        // standaloneSetup 不会自动加载 @RestControllerAdvice，
+        // 异常 → 状态码的映射现在在 ApiExceptionHandler 里，必须手动挂上
+        mockMvc = MockMvcBuilders.standaloneSetup(new ChatController(agent, sessions, props))
+                .setControllerAdvice(new ApiExceptionHandler())
+                .build();
     }
 
     private MvcResult postChat(String json) throws Exception {

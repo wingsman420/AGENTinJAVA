@@ -9,6 +9,17 @@ spring:
 
 server:
   port: 8080
+  servlet:
+    session:
+      timeout: 7d
+      cookie:
+        # 会话 Cookie 的安全属性。
+        # HttpOnly：JS 读不到它，XSS 偷不走会话
+        # SameSite=Strict：浏览器不会在跨站请求里带上它 —— 这也是本项目
+        #   敢关掉 CSRF 防护的主要依据（见 SecurityConfig 里的说明）
+        http-only: true
+        same-site: strict
+        # secure: true  # 部署到 HTTPS 时打开；本地是 http，开了浏览器不会回传 Cookie
 
 agent:
   # DeepSeek 用的是 OpenAI 兼容协议，换供应商只要改下面三行

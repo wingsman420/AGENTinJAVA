@@ -91,25 +91,6 @@ public class ChatController {
         return Map.of("sessionId", sessionId, "cleared", removed);
     }
 
-    // ---------- 异常处理 ----------
-
-    /**
-     * 调用大模型失败 → 502 Bad Gateway。
-     *
-     * <p>502 而不是 500：错误来自上游服务（DeepSeek），不是本服务内部出错，
-     * 调用方看到这个状态码就知道"重试可能有用"。
-     */
-    @ExceptionHandler(LlmException.class)
-    public ResponseEntity<Map<String, String>> handleLlmFailure(LlmException e) {
-        log.warn("调用模型失败: {}", e.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(Map.of("error", "调用模型失败", "detail", String.valueOf(e.getMessage())));
-    }
-
-    /** 参数问题 → 400。 */
-    @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException e) {
-        String message = (e.getMessage() == null) ? "请求参数不合法" : e.getMessage();
-        return ResponseEntity.badRequest().body(Map.of("error", message));
-    }
+    // 异常 → HTTP 状态码的映射统一放在 ApiExceptionHandler（@RestControllerAdvice），
+    // 避免同一类异常在不同 Controller 里返回不同状态码。
 }
