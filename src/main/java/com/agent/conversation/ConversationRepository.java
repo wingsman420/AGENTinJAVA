@@ -21,6 +21,4 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
      * <p>把用户条件放进查询里，就**从查询层不给越权的可能**。
      */
     Optional<Conversation> findByIdAndUserId(Long id, Long userId);
-
-    List<Conversation> findAllByUserId(Long userId);
 }

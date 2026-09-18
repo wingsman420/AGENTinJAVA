@@ -35,6 +35,42 @@ public class ChatSession {
     }
 
     /**
+     * 从数据库里的历史重建一个会话。
+     *
+     * <p>会话持久化以后，每次对话都要先从库里把历史读回来 —— 大模型 API 是无状态的，
+     * 每轮都得把完整历史重新发一遍，所以内存里必须有一份完整的。
+     *
+     * @param history 已持久化的消息，**通常已包含 system 消息**（建会话时会一并写入）
+     */
+    public static ChatSession restore(String id, String systemPrompt, List<ChatMessage> history) {
+        ChatSession session = new ChatSession(id, systemPrompt);
+
+        if (history == null || history.isEmpty()) {
+            // 空历史（比如会话刚建、还没写过消息）—— 用构造器放好的 system 消息即可
+            return session;
+        }
+
+        List<ChatMessage> restored = new ArrayList<>(history);
+
+        // 防御：历史里缺 system 消息时补一条。
+        // system 消息承载 agent 的身份与行为边界，丢了它模型就不知道自己是干什么的、
+        // 该不该用工具 —— 这属于"能跑但行为退化"，不补的话很难从现象上察觉。
+        boolean hasSystem = restored.stream().anyMatch(m -> "system".equals(m.role()));
+        if (!hasSystem && systemPrompt != null && !systemPrompt.isBlank()) {
+            restored.add(0, ChatMessage.system(systemPrompt));
+        }
+
+        session.messages.clear();
+        session.messages.addAll(restored);
+        return session;
+    }
+
+    /** 建会话时固化的 system 提示，持久化层需要它来写 conversations 表。 */
+    public String systemPrompt() {
+        return systemPrompt;
+    }
+
+    /**
      * 清空对话历史，只保留 system 提示。
      *
      * <p>清空后**必须重新放入 system 消息**，不能把历史清成空列表 ——
