@@ -119,30 +119,55 @@ Windows 的 cmd / PowerShell 把 `./mvnw` 换成 `mvnw.cmd`。
 
 它会重新编译再启动，约 1～2 秒。**注意这个命令是阻塞的**，改了代码要先 `Ctrl+C` 停掉再重跑，直接再开一个终端会报 `Port 8080 was already in use`。
 
-## 1.6 两种运行模式
+## 1.6 三种运行模式
 
 | 模式 | 命令 | 行为 |
 |---|---|---|
 | **本地开发**（默认） | `java -jar target/agent-cli-0.1.0.jar` | 终端对话 + Web API 同时可用 |
-| **服务器部署** | `java -jar target/agent-cli-0.1.0.jar --agent.cli.enabled=false` | 只提供 Web API，不起终端交互 |
+| **只要终端** | 末尾加 `--spring.main.web-application-type=none` | 不起 Web 服务，纯本地 CLI |
+| **服务器部署** | 末尾加 `--agent.cli.enabled=false` | 只提供 Web API，不起终端交互 |
 
-服务器上即使不加这个参数也没关系 —— stdin 关闭时终端循环会自动失效，Web 服务照常运行。加上它只是让意图更明确。
+服务器上即使不加 `--agent.cli.enabled=false` 也没关系 —— stdin 关闭时终端循环会自动失效，Web 服务照常运行。加上它只是让意图更明确。
 
-## 1.7 启动成功的标志
+## 1.7 终端交互流程
+
+**工作目录是会话级的**，所以启动后先选目录、再选会话：
 
 ```
 ============================================================
   Agent 已就绪
   模型      : deepseek-flash
-  工作目录  : C:\...\lab1\lab1
   可用工具  : listFiles, readFile, searchCode
-  Web API   : http://localhost:8080/api/chat
-------------------------------------------------------------
-  直接输入问题开始对话；输入 /help 看帮助，输入 exit 退出
+  终端编码  : UTF-8（无控制台，按 UTF-8）
+  对话会写入数据库，重启后仍在
 ============================================================
+
+=== 选择工作目录 ===
+  1) C:\Users\Administrator\Desktop\java-training   （3 个对话）
+  2) D:\projects\my-app                             （1 个对话）
+  3) 输入其它路径…
+  0) 退出
+>
 ```
 
-看到这个横幅就说明起好了。可以直接在终端输入问题，例如：
+选定目录后，列出**该目录下**的对话：
+
+```
+=== C:\Users\Administrator\Desktop\java-training 下的对话 ===
+  1) 恢复  [10-16 14:30]  查一下 src 结构        （8 条消息）
+  2) 恢复  [10-15 09:12]  解释 Agent 类          （5 条消息）
+  3) 新建对话
+  4) 删除对话
+  0) 返回上一级
+>
+```
+
+- **恢复**：接着上次的上下文继续聊
+- **新建**：在该目录下开一个新对话
+- **删除**：进入后选一个对话，**二次确认**后连同它的全部消息一起删除（不可逆）
+- **返回上一级**：回到目录选择，可以换一个项目
+
+进入对话后：
 
 ```
 你 > 当前目录下有哪些文件？
@@ -154,7 +179,15 @@ Agent > 当前目录下包含 pom.xml、README.md、mvnw …
 Agent > Agent.java 的 chat 方法实现了这个循环，从第 88 行开始…
 ```
 
-输入 `exit` 退出终端对话（Web API 不受影响）。
+对话内的命令：
+
+| 输入 | 行为 |
+|---|---|
+| `/help` | 显示帮助 |
+| `clear` | 清空当前对话的历史（保留会话本身） |
+| `exit` | 退出程序（Web API 不受影响） |
+
+> **目录列表是"用过哪些目录"**，从会话里派生 —— 所以打开一个目录但没建任何对话的话，它不会出现在列表里。手动输一次路径即可，创建对话后就记住了。
 
 ## 1.8 换端口
 
@@ -305,22 +338,57 @@ curl -b cookies.txt http://localhost:8080/api/me
 > 密码**绝不存明文**，库里是 BCrypt 哈希。登录失败时统一提示"用户名或密码错误"，
 > 不区分"用户不存在"和"密码错误" —— 区分开来等于给攻击者一个枚举用户名的接口。
 
-## 3.2 会话的增删改查
+## 3.2 工作目录
+
+**工作目录是会话级属性**，不是进程配置 —— 同一个服务里可以同时开着工作在不同项目下的会话。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/workspaces` | 列出**该用户用过**的工作目录（从会话派生，带会话数与最近使用时间） |
+
+```bash
+curl -b cookies.txt http://localhost:8080/api/workspaces
+```
+
+```json
+[
+  { "path": "D:\\projects\\my-app", "conversationCount": 2, "lastUsedAt": "2026-10-16T06:30:00Z" },
+  { "path": "C:\\Users\\Administrator\\Desktop\\java-training", "conversationCount": 3, "lastUsedAt": "2026-10-15T09:12:00Z" }
+]
+```
+
+> 列表是从会话里 `GROUP BY workspace` 派生的，不单独建表 —— 这样它天然与
+> "实际有对话的地方"一致，不会出现"列表里有、点进去空的"。
+> 代价是打开目录但一条对话都没建的不会出现在列表里。
+
+## 3.3 会话的增删改查
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/api/conversations` | 列出**当前用户**的会话，最近活跃的在前 |
-| `POST` | `/api/conversations` | 新建会话 |
+| `GET` | `/api/conversations?workspace=<路径>` | 只列该工作目录下的会话 |
+| `POST` | `/api/conversations` | 新建会话（**可指定 workspace**） |
 | `GET` | `/api/conversations/{id}` | 读会话详情 + 完整消息历史 |
 | `PATCH` | `/api/conversations/{id}` | 改标题 |
 | `DELETE` | `/api/conversations/{id}` | 删会话（连带删掉它的消息） |
 | `DELETE` | `/api/conversations/{id}/messages` | **只清消息、保留会话**（对齐 CLI 的 `clear`） |
 
+新建会话时 `workspace` **可选**，省略则用服务端配置的默认目录：
+
+```bash
+curl -b cookies.txt -X POST http://localhost:8080/api/conversations \
+     -H "Content-Type: application/json" \
+     -d '{"title":"我的对话","workspace":"D:\\projects\\my-app"}'
+```
+
 > **越权保护**：以上接口只操作**你自己**的会话。用别人的会话 id 一律返回 404 ——
 > 用 404 而不是 403，是为了不泄露"这个 id 确实存在"。查询条件里直接带上 userId，
 > 从查询层就不给越权的可能。
 
-## 3.3 对话
+> **路径校验**：`workspace` 必须存在、是目录、且在白名单内（见 [6.2](#62-工作目录白名单)），
+> 否则返回 400。**非法路径必须在写库前拦下** —— 一旦存进去，之后每次打开这个会话都会失败。
+
+## 3.4 对话
 
 ```bash
 # 先建一个会话，从响应里拿到 id
@@ -341,11 +409,11 @@ curl -b cookies.txt -X POST http://localhost:8080/api/chat \
 
 `historySize` 是当前会话的消息条数（含 system 与工具消息），可用来观察上下文增长。
 
-## 3.4 状态
+## 3.5 状态
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/api/status` | 服务状态（模型、工作目录、工具列表、当前用户、会话数） |
+| `GET` | `/api/status` | 服务状态（模型、默认工作目录、工具列表、当前用户、会话数） |
 
 ## 3.5 错误码
 
@@ -476,11 +544,13 @@ ConversationService.chat(userId, conversationId, message)
 
 # 六、文件访问的安全边界
 
-Agent 读到的一切都会发送到 DeepSeek 的服务器。所以文件工具被限制在**工作目录**以内：
+## 6.1 工作目录沙箱
+
+Agent 读到的一切都会发送到 DeepSeek 的服务器。所以文件工具被限制在**所在会话的工作目录**以内：
 
 ```yaml
 agent:
-  workspace: ${user.dir}    # 默认是启动时的当前目录，也可写死绝对路径
+  workspace: ${user.dir}    # 这是"默认值" —— 建会话时没指定目录就用它
 ```
 
 越界访问会被拒绝并告知模型：
@@ -497,6 +567,31 @@ Agent > 该路径超出了我的工作目录，出于安全限制无法访问。
 1. **词法层**：`resolve().normalize()` 后检查是否仍在工作目录内 —— 挡住 `../../` 穿越
 2. **物理层**：`toRealPath()` 后再查一次 —— 挡住**符号链接绕过**
 
+## 6.2 ⚠️ 工作目录白名单
+
+**这是引入"会话级工作目录"后新出现的攻击面。**
+
+之前工作目录是**服务端配置**，客户端改不了。现在它可以由客户端指定（建会话时传 `workspace`），而它决定路径沙箱的根 —— 也就是说，**登录用户能把沙箱根指向本机任意路径**，进而用文件工具读那台机器上任何目录。
+
+约束手段是 `agent.allowed-roots` 白名单：
+
+```yaml
+agent:
+  # 留空 = 不限制（本地自用的默认行为），启动时会打一条 WARN
+  # 对外部署必须配置
+  allowed-roots:
+    - C:\Users\Administrator\Desktop
+    - D:\projects
+```
+
+列表非空时，工作目录必须落在其中之一（含子目录）以内，否则创建会话时返回 400。
+
+| 场景 | 是否要配白名单 |
+|---|---|
+| 本机自己用，随手打开任意目录 | 不用配（保持默认） |
+| 部署到服务器给多人用 | **必须配**，否则等于沙箱失效 |
+| 部署到公网 | 必须配，且配合 HTTPS + 关闭开放注册 |
+
 ---
 
 # 七、配置项
@@ -511,7 +606,14 @@ agent:
   max-tokens: 2048                     # 推理模型会先输出思维链，给小了回答会被截断
   timeout: 120s                        # 单次请求超时
   max-tool-iterations: 8               # ReAct 循环轮数上限
-  workspace: ${user.dir}               # 文件沙箱根目录
+
+  # 默认工作目录 —— 建会话没指定目录时用它。
+  # 注意工作目录是**会话级**属性，这个值只是兜底，不是全局锁定。
+  workspace: ${user.dir}
+
+  # 工作目录白名单。留空 = 不限制（本地自用），对外部署必须配。见 6.2
+  allowed-roots: []
+
   cli:
     enabled: true                      # 服务器部署时设为 false
 ```
