@@ -113,8 +113,15 @@ public class ConversationService {
 
     /** 列出某个工作目录下的全部会话，最近活跃的在前。 */
     public List<ConversationView> listByWorkspace(Long userId, String workspace) {
+        // 必须先把传入的路径规范化成与存储时一致的写法，否则会"查不到"。
+        //
+        // 这条查询是**字符串精确匹配**（GROUP BY workspace），而同一个目录可以有多种
+        // 合法写法：C:/proj 与 C:\proj、带不带尾部斜杠、大小写差异。写法不同就被当成
+        // 两个目录，表现为"目录列表显示有 3 个对话，点进去却是空的"——
+        // 不报错、不崩溃，只是静默地对不上，很难查。
+        String normalized = Path.of(workspace).toAbsolutePath().normalize().toString();
         return tx.execute(status -> conversations
-                .findByUserIdAndWorkspaceOrderByUpdatedAtDesc(userId, workspace).stream()
+                .findByUserIdAndWorkspaceOrderByUpdatedAtDesc(userId, normalized).stream()
                 .map(c -> ConversationView.summary(c, messages.countByConversationId(c.getId())))
                 .toList());
     }

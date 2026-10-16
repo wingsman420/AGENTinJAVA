@@ -233,6 +233,24 @@ class ConversationServiceTest {
     }
 
     @Test
+    void 同一目录的不同路径写法应当查到同一批会话() {
+        service.create(alice.getId(), "会话", workspaceA);
+
+        // 这是真实踩过的坑：查询是字符串精确匹配，而同一目录有多种合法写法
+        // （正/反斜杠、大小写、尾部斜杠）。写法不一致就会被当成两个目录，
+        // 表现为"目录列表显示有对话，点进去却是空的" —— 不报错，只是静默对不上。
+        String forwardSlashes = workspaceA.toString().replace('\\', '/');
+        assertThat(service.listByWorkspace(alice.getId(), forwardSlashes))
+                .extracting(ConversationView::title)
+                .containsExactly("会话");
+
+        String withTrailingSeparator = workspaceA + java.io.File.separator;
+        assertThat(service.listByWorkspace(alice.getId(), withTrailingSeparator))
+                .extracting(ConversationView::title)
+                .containsExactly("会话");
+    }
+
+    @Test
     void 列出用过的工作目录并带上会话数() {
         service.create(alice.getId(), "A 里第一个", workspaceA);
         service.create(alice.getId(), "A 里第二个", workspaceA);
