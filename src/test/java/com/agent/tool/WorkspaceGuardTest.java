@@ -1,6 +1,5 @@
 package com.agent.tool;
 
-import com.agent.TestFixtures;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,7 +26,7 @@ class WorkspaceGuardTest {
 
     @BeforeEach
     void setUp() {
-        guard = new WorkspaceGuard(TestFixtures.props(workspace));
+        guard = new WorkspaceGuard(workspace);
     }
 
     // ---------- 正常路径 ----------

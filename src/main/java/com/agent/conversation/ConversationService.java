@@ -1,5 +1,6 @@
 package com.agent.conversation;
 
+import com.agent.config.AgentProperties;
 import com.agent.core.Agent;
 import com.agent.core.ChatSession;
 import com.agent.llm.model.ChatMessage;
@@ -11,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -47,30 +50,49 @@ public class ConversationService {
     private final MessageRepository messages;
     private final UserRepository users;
     private final Agent agent;
+    private final AgentProperties props;
     private final TransactionTemplate tx;
 
     public ConversationService(ConversationRepository conversations,
                                MessageRepository messages,
                                UserRepository users,
                                Agent agent,
+                               AgentProperties props,
                                PlatformTransactionManager transactionManager) {
         this.conversations = conversations;
         this.messages = messages;
         this.users = users;
         this.agent = agent;
+        this.props = props;
         this.tx = new TransactionTemplate(transactionManager);
+
+        // 工作目录现在可以由客户端指定，而它决定路径沙箱的根。
+        // 没配白名单 = 登录用户能把沙箱根设到任意路径，进而读那台机器上任何目录。
+        // 本地自用没问题，但必须让运维/使用者知道当前处于不设限状态。
+        if (!props.hasAllowedRoots()) {
+            log.warn("未配置 agent.allowed-roots，工作目录不设限 —— "
+                    + "任何登录用户都可以把文件工具的访问范围指向本机任意路径。"
+                    + "本地自用可以忽略；对外部署请务必配置白名单。");
+        }
     }
 
     // ---------- CRUD ----------
 
-    /** 新建一个空会话，并把 system 消息一并落库（保证历史永远从 system 开头）。 */
-    public ConversationView create(Long userId, String title) {
+    /**
+     * 新建一个空会话，并把 system 消息一并落库（保证历史永远从 system 开头）。
+     *
+     * @param workspace 本会话的工作目录。文件工具只能访问它以内。
+     *                  会先校验（存在、是目录、在白名单内）再写库 ——
+     *                  非法路径不该被持久化，否则以后每次读这个会话都会失败
+     */
+    public ConversationView create(Long userId, String title, Path workspace) {
         return tx.execute(status -> {
             User user = requireUser(userId);
-            String systemPrompt = agent.systemPrompt();
+            Path normalized = validateWorkspace(workspace);
+            String systemPrompt = agent.systemPrompt(normalized);
 
             Conversation conversation = conversations.save(
-                    new Conversation(user, normalizeTitle(title), systemPrompt));
+                    new Conversation(user, normalizeTitle(title), normalized.toString(), systemPrompt));
 
             messages.save(new Message(conversation, 1, "system", systemPrompt, null, null));
             return ConversationView.summary(conversation, 1);
@@ -78,23 +100,23 @@ public class ConversationService {
     }
 
     /**
-     * 取最近活跃的会话；一个都没有就新建一个。
+     * 列出该用户用过的所有工作目录，最近活跃的在前。
      *
-     * <p>给终端入口用：终端进程每次启动都接续上一次的对话，而不是每次开一个新会话。
+     * <p>"最近用过的目录"**不单独建表**，直接从会话里派生 —— 这样列表天然与
+     * 实际有对话的地方一致，不会出现"列表里有、点进去空的"。
+     * 代价是打开目录但一条对话都没建的不会出现在列表里（手动输一次即可，
+     * 创建对话后就会记住）。
      */
-    public Long findLatestOrCreate(Long userId, String defaultTitle) {
-        return tx.execute(status -> {
-            List<Conversation> existing = conversations.findByUserIdOrderByUpdatedAtDesc(userId);
-            if (!existing.isEmpty()) {
-                return existing.get(0).getId();
-            }
-            User user = requireUser(userId);
-            String systemPrompt = agent.systemPrompt();
-            Conversation created = conversations.save(
-                    new Conversation(user, normalizeTitle(defaultTitle), systemPrompt));
-            messages.save(new Message(created, 1, "system", systemPrompt, null, null));
-            return created.getId();
-        });
+    public List<WorkspaceView> listWorkspaces(Long userId) {
+        return tx.execute(status -> conversations.listWorkspaces(userId));
+    }
+
+    /** 列出某个工作目录下的全部会话，最近活跃的在前。 */
+    public List<ConversationView> listByWorkspace(Long userId, String workspace) {
+        return tx.execute(status -> conversations
+                .findByUserIdAndWorkspaceOrderByUpdatedAtDesc(userId, workspace).stream()
+                .map(c -> ConversationView.summary(c, messages.countByConversationId(c.getId())))
+                .toList());
     }
 
     public List<ConversationView> list(Long userId) {
@@ -170,7 +192,8 @@ public class ConversationService {
                     .map(Message::toChatMessage)
                     .toList();
             ChatSession session = ChatSession.restore(
-                    String.valueOf(conversationId), conversation.getSystemPrompt(), history);
+                    String.valueOf(conversationId), conversation.getSystemPrompt(),
+                    Path.of(conversation.getWorkspace()), history);
             return new Loaded(conversation.getId(), session, session.size());
         });
 
@@ -200,7 +223,8 @@ public class ConversationService {
                     .map(Message::toChatMessage)
                     .toList();
             return ChatSession.restore(
-                    String.valueOf(conversationId), conversation.getSystemPrompt(), history);
+                    String.valueOf(conversationId), conversation.getSystemPrompt(),
+                    Path.of(conversation.getWorkspace()), history);
         });
     }
 
@@ -246,6 +270,38 @@ public class ConversationService {
     private User requireUser(Long userId) {
         return users.findById(userId)
                 .orElseThrow(() -> new NoSuchElementException("用户不存在: " + userId));
+    }
+
+    /**
+     * 校验并规范化工作目录。
+     *
+     * <p>非法路径**必须在写库之前拦下** —— 一旦存进去，之后每次读这个会话都会失败，
+     * 而且用户会在一个自己打不开的会话里反复遇到错误，很难自己定位到原因。
+     *
+     * <p>三道检查：存在、是目录、在白名单内。前两条是"路径本身可用"，
+     * 第三条是"这个路径允许被这个用户当作沙箱根"。
+     */
+    private Path validateWorkspace(Path workspace) {
+        // 不指定就用配置里的默认工作目录。
+        // 这样做是为了**兼容旧客户端** —— 之前建会话只需要 title，
+        // 把 workspace 设计成必填会让所有既有调用直接 400。
+        Path target = (workspace == null) ? props.workspace() : workspace;
+        Path normalized = target.toAbsolutePath().normalize();
+
+        if (!Files.exists(normalized)) {
+            throw new IllegalArgumentException("工作目录不存在：" + normalized);
+        }
+        if (!Files.isDirectory(normalized)) {
+            throw new IllegalArgumentException("工作目录不是一个目录：" + normalized);
+        }
+        if (!Files.isReadable(normalized)) {
+            throw new IllegalArgumentException("工作目录不可读：" + normalized);
+        }
+        if (!props.isWorkspaceAllowed(normalized)) {
+            throw new IllegalArgumentException(
+                    "工作目录不在允许的范围内：" + normalized + "（见配置 agent.allowed-roots）");
+        }
+        return normalized;
     }
 
     private static String normalizeTitle(String title) {

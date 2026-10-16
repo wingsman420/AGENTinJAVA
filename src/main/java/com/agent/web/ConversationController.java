@@ -15,9 +15,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
@@ -38,17 +40,31 @@ public class ConversationController {
         this.conversations = conversations;
     }
 
-    /** 列出当前用户的全部会话，最近活跃的在前。 */
+    /**
+     * 列出当前用户的会话，最近活跃的在前。
+     *
+     * @param workspace 可选。传了就只列该工作目录下的会话；
+     *                  不传则列出全部目录的。用可选参数而不是新开一个端点，
+     *                  是因为"列出我的会话"和"列出某个目录的会话"本质是同一个查询
+     */
     @GetMapping
-    public List<ConversationView> list(@AuthenticationPrincipal AppUserPrincipal principal) {
-        return conversations.list(principal.id());
+    public List<ConversationView> list(@AuthenticationPrincipal AppUserPrincipal principal,
+                                       @RequestParam(required = false) String workspace) {
+        return (workspace == null || workspace.isBlank())
+                ? conversations.list(principal.id())
+                : conversations.listByWorkspace(principal.id(), workspace);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ConversationView create(@AuthenticationPrincipal AppUserPrincipal principal,
                                    @RequestBody(required = false) @Valid CreateConversationRequest request) {
-        return conversations.create(principal.id(), request == null ? null : request.title());
+        return conversations.create(
+                principal.id(),
+                request == null ? null : request.title(),
+                request == null || request.workspace() == null
+                        ? null
+                        : Path.of(request.workspace()));
     }
 
     /** 读会话详情，含完整消息历史。 */

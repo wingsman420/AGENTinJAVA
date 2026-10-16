@@ -1,6 +1,8 @@
 package com.agent.conversation;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,4 +23,23 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
      * <p>把用户条件放进查询里，就**从查询层不给越权的可能**。
      */
     Optional<Conversation> findByIdAndUserId(Long id, Long userId);
+
+    /** 某个工作目录下的会话，最近活跃的在前。 */
+    List<Conversation> findByUserIdAndWorkspaceOrderByUpdatedAtDesc(Long userId, String workspace);
+
+    /**
+     * 该用户用过的所有工作目录（派生视图，不是表）。
+     *
+     * <p>用构造器表达式直接映射成 {@link WorkspaceView}，省掉一次"先查出实体再手工聚合"。
+     * 注意 {@code COUNT} 返回的是 {@code Long}，所以 record 的对应字段也用包装类型。
+     */
+    @Query("""
+            SELECT new com.agent.conversation.WorkspaceView(
+                        c.workspace, COUNT(c), MAX(c.updatedAt))
+            FROM Conversation c
+            WHERE c.user.id = :userId
+            GROUP BY c.workspace
+            ORDER BY MAX(c.updatedAt) DESC
+            """)
+    List<WorkspaceView> listWorkspaces(@Param("userId") Long userId);
 }

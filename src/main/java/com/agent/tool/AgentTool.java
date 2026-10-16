@@ -36,15 +36,19 @@ public interface AgentTool {
      *
      * <p>不要重写这个方法 —— 重写 {@link #doExecute} 即可。
      * 这里集中做异常兜底，保证任何工具都不会因为路径越界而中断整轮对话。
+     *
+     * @param context 本次调用的上下文，含所属会话的工作目录。
+     *                文件工具必须用它划定的边界，**不能读全局配置** ——
+     *                同一个进程里可能同时有多个工作在不同目录的会话
      */
-    default String execute(String argumentsJson) {
+    default String execute(String argumentsJson, ToolContext context) {
         try {
-            return doExecute(argumentsJson);
+            return doExecute(argumentsJson, context);
         } catch (WorkspaceViolationException e) {
             return "错误：" + e.getMessage();
         }
     }
 
     /** 子类实现真正的工具逻辑。 */
-    String doExecute(String argumentsJson);
+    String doExecute(String argumentsJson, ToolContext context);
 }

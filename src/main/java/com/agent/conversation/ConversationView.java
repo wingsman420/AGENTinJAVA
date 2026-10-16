@@ -9,10 +9,14 @@ import java.util.List;
  * <p>列表接口用 {@link #summary}（不含消息，只给条数），详情接口用 {@link #detail}
  * （含完整消息历史）。如果列表接口也返回全部消息，会话一多响应就会非常臃肿 ——
  * 而列表页本来也不需要历史内容。
+ *
+ * <p>{@code workspace} 是会话级别的属性，客户端靠它区分"这个会话是在哪个项目下聊的"。
+ * 列表和详情都返回它 —— 没有它，客户端拿到一串会话标题也不知道各自属于哪个目录。
  */
 public record ConversationView(
         Long id,
         String title,
+        String workspace,
         Instant createdAt,
         Instant updatedAt,
         long messageCount,
@@ -24,6 +28,7 @@ public record ConversationView(
         return new ConversationView(
                 conversation.getId(),
                 conversation.getTitle(),
+                conversation.getWorkspace(),
                 conversation.getCreatedAt(),
                 conversation.getUpdatedAt(),
                 messageCount,
@@ -35,6 +40,7 @@ public record ConversationView(
         return new ConversationView(
                 conversation.getId(),
                 conversation.getTitle(),
+                conversation.getWorkspace(),
                 conversation.getCreatedAt(),
                 conversation.getUpdatedAt(),
                 messages.size(),

@@ -1,8 +1,5 @@
 # 开发日志：agent-cli
 
-把原先的 HelloWorld 项目改造成一个能调用 DeepSeek API 的本地 Agent。
-
-- **起点**：`com.training:lab1` —— Spring Boot HelloWorld（`Lab1Application` + Hello 三件套）
 - **终点**：`com.agent:agent-cli:0.1.0` —— 终端对话 + Web API + 本地文件理解
 - **日期**：2026-09-11
 

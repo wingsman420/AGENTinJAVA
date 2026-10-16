@@ -7,11 +7,13 @@ import com.agent.llm.model.ChatMessage;
 import com.agent.llm.model.ChatRequest;
 import com.agent.llm.model.ChatResponse;
 import com.agent.llm.model.ToolCall;
+import com.agent.tool.ToolContext;
 import com.agent.tool.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -63,8 +65,12 @@ public class Agent {
      * <p>这段文字不进对话历史之外的地方 —— 它是每轮请求的第一条消息。
      * 写得具体比写得长更重要：明确的"先 listFiles 再 readFile"这类顺序指引，
      * 能显著减少模型瞎猜文件名的次数。
+     *
+     * @param workspace 本次会话的工作目录。**必须由调用方传入而不是读全局配置** ——
+     *                  工作目录是会话级属性，同一个进程里可能同时有多个会话
+     *                  工作在不同项目下，读全局配置会让提示词与实际沙箱边界不一致
      */
-    public String systemPrompt() {
+    public String systemPrompt(Path workspace) {
         return """
                 你是一个运行在用户本机上的 Java 项目开发助手，可以通过工具查看用户的本地文件。
 
@@ -80,7 +86,7 @@ public class Agent {
                 当前工作目录：%s
                 可用工具：%s
                 """.formatted(
-                props.workspace(),
+                workspace,
                 toolRegistry.isEmpty() ? "（无）" : String.join(", ", toolRegistry.toolNames()));
     }
 
@@ -113,7 +119,9 @@ public class Agent {
                 session.add(ChatMessage.assistant(message.content(), message.toolCalls()));
 
                 for (ToolCall call : message.toolCalls()) {
-                    String result = toolRegistry.execute(call.function().name(), call.function().arguments());
+                    String result = toolRegistry.execute(call.function().name(),
+                            call.function().arguments(),
+                            new ToolContext(session.workspace()));
                     session.add(ChatMessage.tool(call.id(), result));
                 }
             }

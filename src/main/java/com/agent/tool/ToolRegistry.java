@@ -53,13 +53,13 @@ public class ToolRegistry {
      * 不该让整轮对话崩掉。把错误告诉模型，它往往能自己调整（换个路径、
      * 换个关键字）并成功完成任务 —— 这是 agent 比"一问一答"更有用的地方。
      */
-    public String execute(String name, String argumentsJson) {
+    public String execute(String name, String argumentsJson, ToolContext context) {
         AgentTool tool = tools.get(name);
         if (tool == null) {
             return "错误：不存在名为「%s」的工具。可用工具：%s".formatted(name, tools.keySet());
         }
         try {
-            return tool.execute(argumentsJson);
+            return tool.execute(argumentsJson, context);
         } catch (WorkspaceViolationException e) {
             return "错误：" + e.getMessage();
         } catch (Exception e) {

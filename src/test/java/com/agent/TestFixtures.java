@@ -4,6 +4,7 @@ import com.agent.config.AgentProperties;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 
 /** 测试用的公共构造辅助。 */
 public final class TestFixtures {
@@ -25,6 +26,15 @@ public final class TestFixtures {
                 Duration.ofSeconds(5),
                 maxToolIterations,
                 workspace,
+                List.of(),              // 默认不配白名单（= 不限制），与服务默认行为一致
                 new AgentProperties.Cli(false));
+    }
+
+    /** 配了工作目录白名单的配置，用来测越界拒绝。 */
+    public static AgentProperties propsWithAllowedRoots(Path workspace, List<Path> allowedRoots) {
+        return new AgentProperties(
+                "http://localhost:1", "test-key", "test-model",
+                512, Duration.ofSeconds(5), 8,
+                workspace, allowedRoots, new AgentProperties.Cli(false));
     }
 }

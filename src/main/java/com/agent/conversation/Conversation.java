@@ -37,6 +37,20 @@ public class Conversation {
     private String title;
 
     /**
+     * 本会话的工作目录（绝对路径）。文件工具只能访问它以内的文件。
+     *
+     * <p><b>为什么要存下来</b>：工作目录是会话级别的属性 —— 同一个进程里可以同时开着
+     * 多个工作在不同项目下的会话。存成结构化字段而不是"从 systemPrompt 里解析"，
+     * 是因为工具执行时需要它，而 systemPrompt 只是给模型看的提示词文本，
+     * 从里面解析路径既脆弱（路径分隔符、转义）又容易随提示词模板改动而失效。
+     *
+     * <p>用 String 而不是 Path：Hibernate 不原生支持 {@code java.nio.file.Path}，
+     * 转换放在 Service 层做，实体保持是纯粹的数据库映射。
+     */
+    @Column(name = "workspace", nullable = false, length = 1000)
+    private String workspace;
+
+    /**
      * 建会话时固化的 system 提示。
      *
      * <p><b>必须存下来，不能在读的时候重新生成。</b> {@code Agent.systemPrompt()}
@@ -56,9 +70,10 @@ public class Conversation {
     protected Conversation() {
     }
 
-    public Conversation(User user, String title, String systemPrompt) {
+    public Conversation(User user, String title, String workspace, String systemPrompt) {
         this.user = user;
         this.title = title;
+        this.workspace = workspace;
         this.systemPrompt = systemPrompt;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
@@ -79,6 +94,11 @@ public class Conversation {
 
     public String getTitle() {
         return title;
+    }
+
+    /** 工作目录的绝对路径字符串。转成 {@code Path} 由调用方负责。 */
+    public String getWorkspace() {
+        return workspace;
     }
 
     public void setTitle(String title) {

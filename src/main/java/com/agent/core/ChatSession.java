@@ -2,6 +2,7 @@ package com.agent.core;
 
 import com.agent.llm.model.ChatMessage;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,12 +26,23 @@ public class ChatSession {
     private final String id;
     private final Instant createdAt;
     private final String systemPrompt;
+
+    /**
+     * 本次会话的工作目录 —— 文件工具只能在它以内活动。
+     *
+     * <p>这是**会话级**而不是进程级的：同一个进程里可以同时开着多个工作在不同目录的会话。
+     * 它由 {@code Agent.chat()} 打包成 {@code ToolContext} 传给工具，
+     * 是"目录信息"从数据库一路走到文件系统的通道。
+     */
+    private final Path workspace;
+
     private final List<ChatMessage> messages = new ArrayList<>();
 
-    public ChatSession(String id, String systemPrompt) {
+    public ChatSession(String id, String systemPrompt, Path workspace) {
         this.id = id;
         this.createdAt = Instant.now();
         this.systemPrompt = systemPrompt;
+        this.workspace = workspace;
         resetToSystemPrompt();
     }
 
@@ -42,8 +54,9 @@ public class ChatSession {
      *
      * @param history 已持久化的消息，**通常已包含 system 消息**（建会话时会一并写入）
      */
-    public static ChatSession restore(String id, String systemPrompt, List<ChatMessage> history) {
-        ChatSession session = new ChatSession(id, systemPrompt);
+    public static ChatSession restore(String id, String systemPrompt, Path workspace,
+                                      List<ChatMessage> history) {
+        ChatSession session = new ChatSession(id, systemPrompt, workspace);
 
         if (history == null || history.isEmpty()) {
             // 空历史（比如会话刚建、还没写过消息）—— 用构造器放好的 system 消息即可
@@ -63,6 +76,11 @@ public class ChatSession {
         session.messages.clear();
         session.messages.addAll(restored);
         return session;
+    }
+
+    /** 本次会话的工作目录，文件工具的访问边界由它决定。 */
+    public Path workspace() {
+        return workspace;
     }
 
     /** 建会话时固化的 system 提示，持久化层需要它来写 conversations 表。 */

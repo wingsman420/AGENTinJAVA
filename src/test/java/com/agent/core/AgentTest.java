@@ -35,6 +35,7 @@ class AgentTest {
     static class StubTool implements AgentTool {
         final AtomicInteger callCount = new AtomicInteger();
         volatile String lastArguments;
+        volatile Path lastWorkspace;
 
         @Override
         public ToolDefinition definition() {
@@ -42,9 +43,11 @@ class AgentTest {
         }
 
         @Override
-        public String doExecute(String argumentsJson) {
+        public String doExecute(String argumentsJson, com.agent.tool.ToolContext context) {
             callCount.incrementAndGet();
             this.lastArguments = argumentsJson;
+            // 顺便记下上下文里的工作目录，供"目录确实传到了工具"的断言使用
+            this.lastWorkspace = context.workspace();
             return "工具执行结果：找到了 3 个文件";
         }
     }
@@ -62,7 +65,7 @@ class AgentTest {
     }
 
     private ChatSession newSession(Agent agent) {
-        return new ChatSession("test-session", agent.systemPrompt());
+        return new ChatSession("test-session", agent.systemPrompt(workspace), workspace);
     }
 
     // ---------- 基本对话 ----------
@@ -80,6 +83,22 @@ class AgentTest {
         assertThat(session.messages()).hasSize(3);
         assertThat(session.messages().get(2).role()).isEqualTo("assistant");
         assertThat(stubTool.callCount).hasValue(0);
+    }
+
+    @Test
+    void 工具收到的是会话自己的工作目录() {
+        Agent agent = buildAgent(8);
+        // 故意用一个与会话不同的目录做对比，确保工具拿到的是会话那个而不是全局配置
+        Path sessionWorkspace = workspace.resolve("某个具体项目");
+        ChatSession session = new ChatSession("s1", agent.systemPrompt(sessionWorkspace),
+                sessionWorkspace);
+
+        llmClient.thenCallTool("call_1", "stubTool", "{}").thenAnswer("好了");
+        agent.chat(session, "看看");
+
+        // 这是本次改动的核心：工作目录从"进程级配置"变成了"会话级属性"，
+        // 必须真的传到工具手上 —— 否则同一个进程里多个会话会互相看到对方的目录
+        assertThat(stubTool.lastWorkspace).isEqualTo(sessionWorkspace);
     }
 
     @Test
@@ -253,7 +272,7 @@ class AgentTest {
     void 系统提示里包含工作目录和可用工具() {
         Agent agent = buildAgent(8);
 
-        String prompt = agent.systemPrompt();
+        String prompt = agent.systemPrompt(workspace);
 
         assertThat(prompt).contains(workspace.toString()).contains("stubTool");
     }
@@ -268,7 +287,7 @@ class AgentTest {
 
         assertThat(reply).isEqualTo("我没有工具也能回答。");
         assertThat(llmClient.receivedRequests().get(0).tools()).isNull();  // 空工具列表不该发出 tools 字段
-        assertThat(agent.systemPrompt()).contains("（无）");
+        assertThat(agent.systemPrompt(workspace)).contains("（无）");
     }
 
     @Test

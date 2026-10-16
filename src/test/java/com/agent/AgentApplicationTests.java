@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.nio.file.Path;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -61,6 +63,8 @@ class AgentApplicationTests {
 
     @Test
     void 系统提示里带上了工作目录() {
-        assertThat(agent.systemPrompt()).contains("当前工作目录");
+        // 工作目录现在是会话级参数，生成提示词时必须显式传入
+        assertThat(agent.systemPrompt(Path.of(System.getProperty("user.dir"))))
+                .contains("当前工作目录");
     }
 }

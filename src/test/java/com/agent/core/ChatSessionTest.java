@@ -3,6 +3,8 @@ package com.agent.core;
 import com.agent.llm.model.ChatMessage;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -14,9 +16,12 @@ class ChatSessionTest {
 
     private static final String SYSTEM = "你是一个测试用的助手。";
 
+    /** 会话的工作目录。这些用例不碰文件系统，随便给一个合法路径即可。 */
+    private static final Path WORKSPACE = Path.of(System.getProperty("java.io.tmpdir"));
+
     @Test
     void 构造时自动放入system消息() {
-        ChatSession session = new ChatSession("s1", SYSTEM);
+        ChatSession session = new ChatSession("s1", SYSTEM, WORKSPACE);
 
         assertThat(session.messages()).hasSize(1);
         assertThat(session.messages().get(0).role()).isEqualTo("system");
@@ -25,14 +30,14 @@ class ChatSessionTest {
 
     @Test
     void 没有system提示时历史为空() {
-        ChatSession session = new ChatSession("s1", null);
+        ChatSession session = new ChatSession("s1", null, WORKSPACE);
 
         assertThat(session.messages()).isEmpty();
     }
 
     @Test
     void clear后只剩system消息() {
-        ChatSession session = new ChatSession("s1", SYSTEM);
+        ChatSession session = new ChatSession("s1", SYSTEM, WORKSPACE);
         session.add(ChatMessage.user("第一个问题"));
         session.add(ChatMessage.assistant("第一个回答", null));
         session.add(ChatMessage.user("第二个问题"));
@@ -50,7 +55,7 @@ class ChatSessionTest {
 
     @Test
     void clear后会话id不变() {
-        ChatSession session = new ChatSession("keep-me", SYSTEM);
+        ChatSession session = new ChatSession("keep-me", SYSTEM, WORKSPACE);
         session.add(ChatMessage.user("问题"));
 
         session.clear();
@@ -61,7 +66,7 @@ class ChatSessionTest {
 
     @Test
     void 没有system提示时clear得到空历史() {
-        ChatSession session = new ChatSession("s1", null);
+        ChatSession session = new ChatSession("s1", null, WORKSPACE);
         session.add(ChatMessage.user("问题"));
 
         session.clear();
@@ -71,7 +76,7 @@ class ChatSessionTest {
 
     @Test
     void messages返回的是副本改不动内部状态() {
-        ChatSession session = new ChatSession("s1", SYSTEM);
+        ChatSession session = new ChatSession("s1", SYSTEM, WORKSPACE);
 
         var snapshot = session.messages();
         session.add(ChatMessage.user("新消息"));
@@ -83,7 +88,7 @@ class ChatSessionTest {
 
     @Test
     void clear是可重复调用的() {
-        ChatSession session = new ChatSession("s1", SYSTEM);
+        ChatSession session = new ChatSession("s1", SYSTEM, WORKSPACE);
         session.add(ChatMessage.user("a"));
 
         session.clear();

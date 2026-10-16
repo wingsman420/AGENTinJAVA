@@ -6,11 +6,13 @@ import com.agent.user.User;
 import com.agent.user.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.nio.file.Path;
 import java.util.NoSuchElementException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,6 +52,16 @@ class ConversationServiceTest {
     private User alice;
     private User bob;
 
+    /** 这些用例不验证目录隔离，统一用启动目录当工作目录即可。 */
+    private static final Path WORKSPACE = Path.of(System.getProperty("user.dir"));
+
+    /** 两个不同的工作目录，用来验证会话按目录隔离。 */
+    @TempDir
+    Path workspaceA;
+
+    @TempDir
+    Path workspaceB;
+
     @BeforeEach
     void setUp() {
         // @SpringBootTest **默认不回滚**（不像 @DataJpaTest 自带 @Transactional），
@@ -74,7 +86,7 @@ class ConversationServiceTest {
 
     @Test
     void 新建会话会一并写入system消息() {
-        ConversationView created = service.create(alice.getId(), "第一个会话");
+        ConversationView created = service.create(alice.getId(), "第一个会话", WORKSPACE);
 
         assertThat(created.title()).isEqualTo("第一个会话");
         assertThat(created.messageCount()).isEqualTo(1);
@@ -90,22 +102,22 @@ class ConversationServiceTest {
 
     @Test
     void 标题为空时给默认值() {
-        assertThat(service.create(alice.getId(), "   ").title()).isEqualTo("新会话");
+        assertThat(service.create(alice.getId(), "   ", WORKSPACE).title()).isEqualTo("新会话");
     }
 
     @Test
     void 过长的标题会被截断() {
         String longTitle = "标".repeat(200);
 
-        assertThat(service.create(alice.getId(), longTitle).title()).hasSize(60);
+        assertThat(service.create(alice.getId(), longTitle, WORKSPACE).title()).hasSize(60);
     }
 
     // ---------- 列表 ----------
 
     @Test
     void 列表只返回自己的会话() {
-        service.create(alice.getId(), "alice 的会话");
-        service.create(bob.getId(), "bob 的会话");
+        service.create(alice.getId(), "alice 的会话", WORKSPACE);
+        service.create(bob.getId(), "bob 的会话", WORKSPACE);
 
         assertThat(service.list(alice.getId()))
                 .extracting(ConversationView::title)
@@ -116,7 +128,7 @@ class ConversationServiceTest {
 
     @Test
     void 读别人的会话会被拒绝() {
-        ConversationView aliceConversation = service.create(alice.getId(), "alice 的会话");
+        ConversationView aliceConversation = service.create(alice.getId(), "alice 的会话", WORKSPACE);
 
         assertThatThrownBy(() -> service.get(bob.getId(), aliceConversation.id()))
                 .isInstanceOf(NoSuchElementException.class);
@@ -124,7 +136,7 @@ class ConversationServiceTest {
 
     @Test
     void 改别人会话的标题会被拒绝() {
-        ConversationView aliceConversation = service.create(alice.getId(), "原标题");
+        ConversationView aliceConversation = service.create(alice.getId(), "原标题", WORKSPACE);
 
         assertThatThrownBy(() -> service.rename(bob.getId(), aliceConversation.id(), "被篡改"))
                 .isInstanceOf(NoSuchElementException.class);
@@ -135,7 +147,7 @@ class ConversationServiceTest {
 
     @Test
     void 删别人的会话会被拒绝() {
-        ConversationView aliceConversation = service.create(alice.getId(), "alice 的会话");
+        ConversationView aliceConversation = service.create(alice.getId(), "alice 的会话", WORKSPACE);
 
         assertThatThrownBy(() -> service.delete(bob.getId(), aliceConversation.id()))
                 .isInstanceOf(NoSuchElementException.class);
@@ -146,7 +158,7 @@ class ConversationServiceTest {
 
     @Test
     void 清空别人会话的消息会被拒绝() {
-        ConversationView aliceConversation = service.create(alice.getId(), "alice 的会话");
+        ConversationView aliceConversation = service.create(alice.getId(), "alice 的会话", WORKSPACE);
 
         assertThatThrownBy(() -> service.clearMessages(bob.getId(), aliceConversation.id()))
                 .isInstanceOf(NoSuchElementException.class);
@@ -154,7 +166,7 @@ class ConversationServiceTest {
 
     @Test
     void 往别人会话里发消息会被拒绝() {
-        ConversationView aliceConversation = service.create(alice.getId(), "alice 的会话");
+        ConversationView aliceConversation = service.create(alice.getId(), "alice 的会话", WORKSPACE);
 
         assertThatThrownBy(() -> service.chat(bob.getId(), aliceConversation.id(), "偷看"))
                 .isInstanceOf(NoSuchElementException.class);
@@ -164,7 +176,7 @@ class ConversationServiceTest {
 
     @Test
     void 改标题生效() {
-        ConversationView created = service.create(alice.getId(), "旧标题");
+        ConversationView created = service.create(alice.getId(), "旧标题", WORKSPACE);
 
         ConversationView renamed = service.rename(alice.getId(), created.id(), "新标题");
 
@@ -174,7 +186,7 @@ class ConversationServiceTest {
 
     @Test
     void 删会话会连带删掉它的消息() {
-        ConversationView created = service.create(alice.getId(), "待删会话");
+        ConversationView created = service.create(alice.getId(), "待删会话", WORKSPACE);
         Long id = created.id();
         assertThat(messages.countByConversationId(id)).isEqualTo(1);
 
@@ -186,7 +198,7 @@ class ConversationServiceTest {
 
     @Test
     void 清空消息会保留会话与system消息() {
-        ConversationView created = service.create(alice.getId(), "要清空的会话");
+        ConversationView created = service.create(alice.getId(), "要清空的会话", WORKSPACE);
         Long id = created.id();
 
         service.clearMessages(alice.getId(), id);
@@ -198,11 +210,84 @@ class ConversationServiceTest {
                 .satisfies(m -> assertThat(m.role()).isEqualTo("system"));
     }
 
+    // ---------- 工作目录（本次新增的核心能力） ----------
+
+    @Test
+    void 不同工作目录下的会话互相隔离() {
+        service.create(alice.getId(), "项目 A 的会话", workspaceA);
+        service.create(alice.getId(), "项目 B 的会话", workspaceB);
+
+        assertThat(service.listByWorkspace(alice.getId(), workspaceA.toString()))
+                .extracting(ConversationView::title)
+                .containsExactly("项目 A 的会话");
+        assertThat(service.listByWorkspace(alice.getId(), workspaceB.toString()))
+                .extracting(ConversationView::title)
+                .containsExactly("项目 B 的会话");
+    }
+
+    @Test
+    void 会话会记住创建时的工作目录() {
+        ConversationView created = service.create(alice.getId(), "带目录的会话", workspaceA);
+
+        assertThat(created.workspace()).isEqualTo(workspaceA.toString());
+    }
+
+    @Test
+    void 列出用过的工作目录并带上会话数() {
+        service.create(alice.getId(), "A 里第一个", workspaceA);
+        service.create(alice.getId(), "A 里第二个", workspaceA);
+        service.create(alice.getId(), "B 里第一个", workspaceB);
+
+        assertThat(service.listWorkspaces(alice.getId()))
+                .extracting(WorkspaceView::path, WorkspaceView::conversationCount)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple(workspaceA.toString(), 2L),
+                        org.assertj.core.groups.Tuple.tuple(workspaceB.toString(), 1L));
+    }
+
+    @Test
+    void 别人的工作目录不会出现在我的列表里() {
+        service.create(alice.getId(), "alice 的", workspaceA);
+        service.create(bob.getId(), "bob 的", workspaceB);
+
+        assertThat(service.listWorkspaces(alice.getId()))
+                .extracting(WorkspaceView::path)
+                .containsExactly(workspaceA.toString());
+    }
+
+    @Test
+    void 工作目录不存在时拒绝创建() {
+        Path missing = workspaceA.resolve("没有这个目录");
+
+        // 非法路径必须在写库之前拦下 —— 存进去之后每次打开这个会话都会失败
+        assertThatThrownBy(() -> service.create(alice.getId(), "x", missing))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不存在");
+    }
+
+    @Test
+    void 工作目录是文件时拒绝创建() throws Exception {
+        Path aFile = workspaceA.resolve("a.txt");
+        java.nio.file.Files.writeString(aFile, "x");
+
+        assertThatThrownBy(() -> service.create(alice.getId(), "x", aFile))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不是一个目录");
+    }
+
+    @Test
+    void 不传工作目录时回落到默认值() {
+        // 兼容旧客户端：之前建会话只需要 title
+        ConversationView created = service.create(alice.getId(), "用默认目录", null);
+
+        assertThat(created.workspace()).isNotBlank();
+    }
+
     // ---------- 对话与持久化 ----------
 
     @Test
     void 发消息会把新增的消息落库() {
-        ConversationView created = service.create(alice.getId(), "对话测试");
+        ConversationView created = service.create(alice.getId(), "对话测试", WORKSPACE);
 
         ConversationService.ChatResult result = service.chat(alice.getId(), created.id(), "你好");
 
@@ -216,7 +301,7 @@ class ConversationServiceTest {
 
     @Test
     void 历史能从数据库完整重建并在重启后继续对话() {
-        ConversationView created = service.create(alice.getId(), "多轮对话");
+        ConversationView created = service.create(alice.getId(), "多轮对话", WORKSPACE);
 
         service.chat(alice.getId(), created.id(), "第一个问题");
         // 每一次 chat 都从库里重新读历史，等价于"进程重启后再来一轮"
@@ -229,7 +314,7 @@ class ConversationServiceTest {
 
     @Test
     void 从数据库重建的会话带上正确的system提示() {
-        ConversationView created = service.create(alice.getId(), "重建测试");
+        ConversationView created = service.create(alice.getId(), "重建测试", WORKSPACE);
 
         var session = service.loadSession(alice.getId(), created.id());
 

@@ -27,11 +27,9 @@ public class ReadFileTool implements AgentTool {
     /** 单次读取的字节上限。超过就截断，避免撑爆模型的上下文窗口。 */
     private static final int MAX_BYTES = 256 * 1024;
 
-    private final WorkspaceGuard guard;
     private final JsonMapper jsonMapper;
 
-    public ReadFileTool(WorkspaceGuard guard, JsonMapper jsonMapper) {
-        this.guard = guard;
+    public ReadFileTool(JsonMapper jsonMapper) {
         this.jsonMapper = jsonMapper;
     }
 
@@ -47,7 +45,10 @@ public class ReadFileTool implements AgentTool {
     }
 
     @Override
-    public String doExecute(String argumentsJson) {
+    public String doExecute(String argumentsJson, ToolContext context) {
+        // 工作目录来自本次调用所属的**会话**，不是全局配置。
+        // guard 每次新建：根目录不能再被固化在单例里。
+        WorkspaceGuard guard = new WorkspaceGuard(context.workspace());
         JsonNode args = ToolArgs.parse(jsonMapper, argumentsJson);
         String pathArg = ToolArgs.requiredString(args, "path");
         if (pathArg == null) {

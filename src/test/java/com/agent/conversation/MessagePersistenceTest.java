@@ -44,13 +44,16 @@ class MessagePersistenceTest {
     @PersistenceContext
     private EntityManager entityManager;
 
+    /** 这些用例只验证消息的读写，不关心目录隔离，用一个合法路径即可。 */
+    private static final String WORKSPACE = System.getProperty("user.dir");
+
     private Conversation conversation;
 
     @BeforeEach
     void setUp() {
         User user = userRepository.save(new User("tester", "hash", "测试用户"));
         conversation = conversationRepository.save(
-                new Conversation(user, "测试会话", "你是一个测试助手。"));
+                new Conversation(user, "测试会话", WORKSPACE, "你是一个测试助手。"));
     }
 
     // ---------- 核心：record 集合的往返 ----------
@@ -172,7 +175,7 @@ class MessagePersistenceTest {
     void 按归属用户查会话查不到别人的() {
         User other = userRepository.save(new User("other", "hash", "另一个人"));
         Conversation othersConversation = conversationRepository.save(
-                new Conversation(other, "别人的会话", "system"));
+                new Conversation(other, "别人的会话", WORKSPACE, "system"));
 
         // 用自己的 id 查自己的 —— 查得到
         assertThat(conversationRepository

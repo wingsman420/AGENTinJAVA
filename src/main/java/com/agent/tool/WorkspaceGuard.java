@@ -1,9 +1,7 @@
 package com.agent.tool;
 
-import com.agent.config.AgentProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -25,8 +23,16 @@ import java.nio.file.Path;
  *
  * <p>只做 {@code normalize()} 不做 {@code toRealPath()} 是很常见的疏漏，
  * 在 Linux/macOS 上很容易被软链接绕过。
+ *
+ * <h2>为什么不是 Spring Bean</h2>
+ * 工作目录现在是**会话级**属性（同一个进程里可以同时开着工作在不同项目下的会话），
+ * 而 Bean 是单例、根目录一建就定死。所以改成每次工具调用时
+ * {@code new WorkspaceGuard(context.workspace())}。
+ *
+ * <p>构造器里那两次 {@code toRealPath()} 是系统调用，但同一次工具调用所在的一轮里
+ * 还有一次几十秒的大模型请求，这点开销完全可以忽略。换成缓存反而会引入
+ * "目录被改了但缓存没更新"这类难查的问题。
  */
-@Component
 public class WorkspaceGuard {
 
     private static final Logger log = LoggerFactory.getLogger(WorkspaceGuard.class);
@@ -34,18 +40,18 @@ public class WorkspaceGuard {
     private final Path root;
     private final Path realRoot;
 
-    public WorkspaceGuard(AgentProperties props) {
+    public WorkspaceGuard(Path workspace) {
         // 根目录本身也要做一次 toRealPath，不能只用 normalize()。
         // 原因：Windows 上路径可能带 8.3 短名（如 C:\Users\ADMINI~1\...），
         // 而 toRealPath() 会展开成长名（C:\Users\Administrator\...）。
         // 如果 root 记短名、realRoot 记长名，两者就不一致，后续
         // display() 里的 relativize() 会因为前缀对不上而失败。
         // 统一成真实路径，两个字段始终一致。
-        Path configured = props.workspace().toAbsolutePath().normalize();
+        Path configured = workspace.toAbsolutePath().normalize();
         Path real = realPathOrNull(configured);
         this.root = (real != null) ? real : configured;
         this.realRoot = this.root;
-        log.info("Agent 工作目录锁定为: {}", root);
+        log.debug("本次调用的工作目录: {}", root);
     }
 
     public Path root() {

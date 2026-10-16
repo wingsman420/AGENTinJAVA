@@ -34,11 +34,9 @@ public class SearchCodeTool implements AgentTool {
     private static final Set<String> SKIP_DIRS =
             Set.of(".git", "target", "node_modules", ".idea", "out", "build", ".gradle", ".mvn", ".venv");
 
-    private final WorkspaceGuard guard;
     private final JsonMapper jsonMapper;
 
-    public SearchCodeTool(WorkspaceGuard guard, JsonMapper jsonMapper) {
-        this.guard = guard;
+    public SearchCodeTool(JsonMapper jsonMapper) {
         this.jsonMapper = jsonMapper;
     }
 
@@ -57,7 +55,10 @@ public class SearchCodeTool implements AgentTool {
     }
 
     @Override
-    public String doExecute(String argumentsJson) {
+    public String doExecute(String argumentsJson, ToolContext context) {
+        // 工作目录来自本次调用所属的**会话**，不是全局配置。
+        // guard 每次新建：根目录不能再被固化在单例里。
+        WorkspaceGuard guard = new WorkspaceGuard(context.workspace());
         JsonNode args = ToolArgs.parse(jsonMapper, argumentsJson);
         String pathArg = ToolArgs.requiredString(args, "path");
         String keyword = ToolArgs.requiredString(args, "keyword");

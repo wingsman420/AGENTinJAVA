@@ -35,11 +35,9 @@ public class ListFilesTool implements AgentTool {
             Comparator.comparing((Path p) -> !Files.isDirectory(p))
                     .thenComparing(p -> p.getFileName().toString().toLowerCase());
 
-    private final WorkspaceGuard guard;
     private final JsonMapper jsonMapper;
 
-    public ListFilesTool(WorkspaceGuard guard, JsonMapper jsonMapper) {
-        this.guard = guard;
+    public ListFilesTool(JsonMapper jsonMapper) {
         this.jsonMapper = jsonMapper;
     }
 
@@ -57,7 +55,11 @@ public class ListFilesTool implements AgentTool {
     }
 
     @Override
-    public String doExecute(String argumentsJson) {
+    public String doExecute(String argumentsJson, ToolContext context) {
+        // 工作目录来自本次调用所属的**会话**，不是全局配置 ——
+        // 同一个进程里可以同时开着多个工作在不同项目下的会话。
+        // guard 每次新建：它不再是单例 Bean，因为根目录不能再被固化一次。
+        WorkspaceGuard guard = new WorkspaceGuard(context.workspace());
         JsonNode args = ToolArgs.parse(jsonMapper, argumentsJson);
         String pathArg = args.path("path").asString(".");
         boolean recursive = args.path("recursive").asBoolean(false);

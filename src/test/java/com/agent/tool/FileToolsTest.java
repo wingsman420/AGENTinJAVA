@@ -27,7 +27,6 @@ class FileToolsTest {
     @TempDir
     Path workspace;
 
-    private WorkspaceGuard guard;
     private ListFilesTool listFiles;
     private ReadFileTool readFile;
     private SearchCodeTool searchCode;
@@ -35,10 +34,20 @@ class FileToolsTest {
     @BeforeEach
     void setUp() {
         JsonMapper jsonMapper = JsonMapper.builder().build();
-        guard = new WorkspaceGuard(TestFixtures.props(workspace));
-        listFiles = new ListFilesTool(guard, jsonMapper);
-        readFile = new ReadFileTool(guard, jsonMapper);
-        searchCode = new SearchCodeTool(guard, jsonMapper);
+        // 工具不再持有 WorkspaceGuard —— 工作目录改由每次调用的 ToolContext 传入，
+        // 所以这里构造工具时不需要 guard，run() 里会给每次调用带上上下文
+        listFiles = new ListFilesTool(jsonMapper);
+        readFile = new ReadFileTool(jsonMapper);
+        searchCode = new SearchCodeTool(jsonMapper);
+    }
+
+    /**
+     * 用一个指向 {@code @TempDir} 的上下文执行工具。
+     *
+     * <p>把"每次调用都要带工作目录"这件事收在这里，测试用例本身专注在断言上。
+     */
+    private String run(AgentTool tool, String argumentsJson) {
+        return tool.execute(argumentsJson, new ToolContext(workspace));
     }
 
     private void write(String relativePath, String content) throws IOException {
@@ -54,7 +63,7 @@ class FileToolsTest {
         write("README.md", "# demo");
         Files.createDirectories(workspace.resolve("src"));
 
-        String result = listFiles.execute("{\"path\":\".\"}");
+        String result = run(listFiles, "{\"path\":\".\"}");
 
         assertThat(result).contains("README.md").contains("[目录] src").contains("[文件] README.md");
     }
@@ -63,7 +72,7 @@ class FileToolsTest {
     void listFiles递归模式列出子目录内容() throws IOException {
         write("src/main/App.java", "class App {}");
 
-        String result = listFiles.execute("{\"path\":\".\",\"recursive\":true}");
+        String result = run(listFiles, "{\"path\":\".\",\"recursive\":true}");
 
         assertThat(result).contains("src");
         // 用系统分隔符断言，避免 Windows/Linux 斜杠差异导致测试假失败
@@ -72,7 +81,7 @@ class FileToolsTest {
 
     @Test
     void listFiles在目录不存在时返回错误文本() {
-        String result = listFiles.execute("{\"path\":\"不存在的目录\"}");
+        String result = run(listFiles, "{\"path\":\"不存在的目录\"}");
 
         assertThat(result).startsWith("错误：").contains("目录不存在");
     }
@@ -81,21 +90,21 @@ class FileToolsTest {
     void listFiles目标是文件时提示改用readFile() throws IOException {
         write("a.txt", "x");
 
-        String result = listFiles.execute("{\"path\":\"a.txt\"}");
+        String result = run(listFiles, "{\"path\":\"a.txt\"}");
 
         assertThat(result).contains("错误：").contains("readFile");
     }
 
     @Test
     void listFiles拒绝越界路径() {
-        String result = listFiles.execute("{\"path\":\"../..\"}");
+        String result = run(listFiles, "{\"path\":\"../..\"}");
 
         assertThat(result).contains("错误：").contains("超出了 agent 的工作目录");
     }
 
     @Test
     void listFiles空目录给出明确提示() {
-        String result = listFiles.execute("{\"path\":\".\"}");
+        String result = run(listFiles, "{\"path\":\".\"}");
 
         assertThat(result).contains("是空的");
     }
@@ -104,7 +113,7 @@ class FileToolsTest {
     void listFiles列出工作目录根时标题不是空白() throws IOException {
         write("a.txt", "x");   // 非空目录才会走到带标题的分支
 
-        String result = listFiles.execute("{\"path\":\".\"}");
+        String result = run(listFiles, "{\"path\":\".\"}");
 
         // 曾经这里是"目录  的内容："，因为根目录 relativize 自己得到空串
         assertThat(result).contains("目录 . 的内容");
@@ -112,7 +121,7 @@ class FileToolsTest {
 
     @Test
     void listFiles空目录的提示里也带上目录名() {
-        String result = listFiles.execute("{\"path\":\".\"}");
+        String result = run(listFiles, "{\"path\":\".\"}");
 
         assertThat(result).contains("目录 . 是空的");
     }
@@ -123,7 +132,7 @@ class FileToolsTest {
         write("src/test/A.java", "class A {}");
         write("docs/readme.md", "x");
 
-        String result = listFiles.execute("{\"path\":\".\",\"recursive\":true}");
+        String result = run(listFiles, "{\"path\":\".\",\"recursive\":true}");
 
         // src 下的内容必须聚在一起，而不是被 docs 或 test 插在中间
         int docsAt = result.indexOf("docs");
@@ -139,7 +148,7 @@ class FileToolsTest {
         write("target/classes/Big.class", "binary");
         write("src/Real.java", "class Real {}");
 
-        String result = listFiles.execute("{\"path\":\".\",\"recursive\":true}");
+        String result = run(listFiles, "{\"path\":\".\",\"recursive\":true}");
 
         assertThat(result).contains("Real.java").doesNotContain("Big.class");
     }
@@ -150,7 +159,7 @@ class FileToolsTest {
     void readFile返回带行号的内容() throws IOException {
         write("Demo.java", "第一行\n第二行\n第三行");
 
-        String result = readFile.execute("{\"path\":\"Demo.java\"}");
+        String result = run(readFile, "{\"path\":\"Demo.java\"}");
 
         assertThat(result).contains("1 | 第一行").contains("2 | 第二行").contains("3 | 第三行");
         assertThat(result).contains("3 行");
@@ -158,14 +167,14 @@ class FileToolsTest {
 
     @Test
     void readFile在文件不存在时返回错误文本() {
-        String result = readFile.execute("{\"path\":\"没有这个文件.txt\"}");
+        String result = run(readFile, "{\"path\":\"没有这个文件.txt\"}");
 
         assertThat(result).contains("错误：").contains("文件不存在").contains("listFiles");
     }
 
     @Test
     void readFile缺少path参数时给出可操作的提示() {
-        String result = readFile.execute("{}");
+        String result = run(readFile, "{}");
 
         assertThat(result).contains("错误：").contains("path");
     }
@@ -174,14 +183,14 @@ class FileToolsTest {
     void readFile目标为目录时提示改用listFiles() throws IOException {
         Files.createDirectories(workspace.resolve("src"));
 
-        String result = readFile.execute("{\"path\":\"src\"}");
+        String result = run(readFile, "{\"path\":\"src\"}");
 
         assertThat(result).contains("错误：").contains("listFiles");
     }
 
     @Test
     void readFile拒绝越界路径() {
-        String result = readFile.execute("{\"path\":\"../../../etc/passwd\"}");
+        String result = run(readFile, "{\"path\":\"../../../etc/passwd\"}");
 
         assertThat(result).contains("错误：").contains("超出了 agent 的工作目录");
     }
@@ -191,14 +200,14 @@ class FileToolsTest {
         Path bin = workspace.resolve("image.png");
         Files.write(bin, new byte[]{1, 2, 0, 3, 4});
 
-        String result = readFile.execute("{\"path\":\"image.png\"}");
+        String result = run(readFile, "{\"path\":\"image.png\"}");
 
         assertThat(result).contains("错误：").contains("二进制");
     }
 
     @Test
     void readFile对格式错误的参数不崩溃() {
-        String result = readFile.execute("这不是合法 JSON");
+        String result = run(readFile, "这不是合法 JSON");
 
         // 参数解析失败应当降级成"缺参数"提示，而不是抛异常
         assertThat(result).contains("错误：").contains("path");
@@ -211,7 +220,7 @@ class FileToolsTest {
         write("A.java", "class A {\n  void hello() {}\n}");
         write("B.java", "class B {}");
 
-        String result = searchCode.execute("{\"path\":\".\",\"keyword\":\"hello\"}");
+        String result = run(searchCode, "{\"path\":\".\",\"keyword\":\"hello\"}");
 
         assertThat(result).contains("A.java:2").contains("void hello()");
         assertThat(result).contains("找到 1 处");
@@ -221,14 +230,14 @@ class FileToolsTest {
     void searchCode无匹配时明确说明() throws IOException {
         write("A.java", "class A {}");
 
-        String result = searchCode.execute("{\"path\":\".\",\"keyword\":\"zzzz不存在\"}");
+        String result = run(searchCode, "{\"path\":\".\",\"keyword\":\"zzzz不存在\"}");
 
         assertThat(result).contains("没有找到").contains("zzzz不存在");
     }
 
     @Test
     void searchCode缺少必填参数时给出提示() {
-        String result = searchCode.execute("{\"path\":\".\"}");
+        String result = run(searchCode, "{\"path\":\".\"}");
 
         assertThat(result).contains("错误：").contains("keyword");
     }
@@ -238,7 +247,7 @@ class FileToolsTest {
         write("target/generated/Gen.java", "class Gen { String marker = \"NEEDLE\"; }");
         write("src/Real.java", "class Real {}");
 
-        String result = searchCode.execute("{\"path\":\".\",\"keyword\":\"NEEDLE\"}");
+        String result = run(searchCode, "{\"path\":\".\",\"keyword\":\"NEEDLE\"}");
 
         assertThat(result).contains("没有找到");
     }
@@ -248,14 +257,14 @@ class FileToolsTest {
         Path bin = workspace.resolve("blob.bin");
         Files.write(bin, new byte[]{'N', 'E', 'E', 'D', 'L', 'E', 0, 1});
 
-        String result = searchCode.execute("{\"path\":\".\",\"keyword\":\"NEEDLE\"}");
+        String result = run(searchCode, "{\"path\":\".\",\"keyword\":\"NEEDLE\"}");
 
         assertThat(result).contains("没有找到");
     }
 
     @Test
     void searchCode拒绝越界路径() {
-        String result = searchCode.execute("{\"path\":\"..\",\"keyword\":\"x\"}");
+        String result = run(searchCode, "{\"path\":\"..\",\"keyword\":\"x\"}");
 
         assertThat(result).contains("错误：").contains("超出了 agent 的工作目录");
     }
@@ -265,7 +274,7 @@ class FileToolsTest {
         write("A.java", "class A {}");
         write("B.java", "class B {}");
 
-        String result = searchCode.execute("{\"path\":\".\",\"keyword\":\"class\"}");
+        String result = run(searchCode, "{\"path\":\".\",\"keyword\":\"class\"}");
 
         assertThat(result).contains("扫描 2 个文件");
     }
